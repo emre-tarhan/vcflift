@@ -32,7 +32,7 @@
 - [x] automatic first-run reference setup dialog when resources are missing.
 - [x] embedded engine shown as read-only/included; development-engine install removed from end-user GUI.
 - [x] cross-process cache/download locking (`internal/cachelock`, fail-fast advisory lock).
-- [ ] retry/backoff hardening for transient network failures.
+- [x] retry/backoff hardening for transient network failures (`internal/httpretry`, 4 attempts, exponential backoff with jitter, resumable .part reuse; 4xx/cancelled contexts fail fast).
 - [x] first-run timing benchmark on representative home connection / SSD (6m18s, full reference preparation from empty cache).
 
 ## GUI
@@ -45,8 +45,8 @@
 - [x] distinct DeepVariant vs GATK gVCF explanation.
 - [x] stage-based conversion progress (no misleading long-lived 0% state) + final lifted/rejected summary.
 - [x] light-only pastel/high-contrast visual direction applied after first screenshot review.
-- [ ] visually inspect actual Linux build and iterate spacing/min-size issues.
-- [ ] visually inspect actual Windows build and iterate platform differences.
+- [x] visually inspect actual Linux build and iterate spacing/min-size issues (three-tab review with user-driven iteration).
+- [x] visually inspect actual Windows build and iterate platform differences (v0.9.0 smoke on real Windows: conversion + hover + console-free child processes confirmed).
 - [ ] interactive cancellation/partial-output cleanup test.
 - [ ] accessibility/keyboard pass.
 

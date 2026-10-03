@@ -1,9 +1,14 @@
 # Changelog
 
-## Unreleased
+## v1.0.0 (2026-10-03)
+
+First stable release. All three conversion paths have passed real-data release gates (see docs/VALIDATION.md).
 
 - Windows: child processes (bcftools, java) no longer open console windows during GUI conversions.
 - GATK gVCF gate passed end-to-end on a public GATK-produced gVCF (pinned Java/GATK runtime first-use, GenotypeGVCFs, liftover, full QC).
+- Network hardening: first-use downloads retry transient failures (4 attempts, exponential backoff with jitter) and resume from `.part` state.
+- Windows: real-machine smoke test passed (conversion, hover styling, console-free child processes).
+- Windows known gap: the managed Java/GATK first-use download has been exercised on Linux only; the code path is shared, but a native Windows run is still pending.
 - Real-data gates for v1.0: the v0.9.0 build reproduces the validated DeepVariant gVCF run bit-for-bit; an ordinary-VCF gate on the GIAB HG002 v4.2.1 benchmark passes with 98.85% independent GRCh37 cross-check concordance.
 - Cross-process cache locking: reference preparation, engine installation, GATK runtime preparation and cache cleaning take an exclusive advisory lock and fail fast with a clear message when another VCF Lift process is already working on the same cache.
 

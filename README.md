@@ -5,7 +5,7 @@
 
 VCF Lift is a local desktop + CLI application for **allele-aware hg38 → UCSC hg19 conversion** of VCF and supported single-sample gVCF inputs.
 
-> **Status:** `v0.9.0` / v1.0 release-hardening. The DeepVariant 1.10.0 `<*>` gVCF path has passed a real 50.6M-record end-to-end run with exact candidate conservation, source/target REF validation, placeholder QC and indexed output. Ordinary VCF and GATK/HaplotypeCaller gVCF real-data release gates remain.
+> **Status:** `v1.0.0`. All three conversion paths have passed real-data release gates: DeepVariant `<*>` gVCF (50.6M-record run, bit-for-bit reproduction), ordinary VCF (GIAB HG002 v4.2.1 with 98.85% independent GRCh37 cross-check concordance) and GATK `<NON_REF>` gVCF (pinned GenotypeGVCFs runtime). See `docs/VALIDATION.md`.
 
 ## Normal use
 

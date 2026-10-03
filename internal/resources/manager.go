@@ -15,6 +15,7 @@ import (
 
 	"github.com/emre-tarhan/vcflift/internal/cachelock"
 	"github.com/emre-tarhan/vcflift/internal/diskspace"
+	"github.com/emre-tarhan/vcflift/internal/httpretry"
 	"github.com/emre-tarhan/vcflift/internal/model"
 )
 
@@ -250,18 +251,13 @@ func (m *Manager) expectedMD5(ctx context.Context, r Resource, finalPath string)
 	if r.ChecksumIndexURL == "" || r.ChecksumIndexName == "" {
 		return "", fmt.Errorf("no checksum configured")
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, r.ChecksumIndexURL, nil)
+	resp, err := httpretry.Do(ctx, m.HTTPClient, func() (*http.Request, error) {
+		return http.NewRequestWithContext(ctx, http.MethodGet, r.ChecksumIndexURL, nil)
+	})
 	if err != nil {
-		return "", err
-	}
-	resp, err := m.HTTPClient.Do(req)
-	if err != nil {
-		return "", err
+		return "", fmt.Errorf("checksum index: %w", err)
 	}
 	defer resp.Body.Close()
-	if resp.StatusCode/100 != 2 {
-		return "", fmt.Errorf("checksum index HTTP %s", resp.Status)
-	}
 	sum, err := parseChecksumIndex(resp.Body, r.ChecksumIndexName)
 	if err != nil {
 		return "", err
@@ -300,6 +296,28 @@ func (m *Manager) estimatedPeakBytes(manifest Manifest) int64 {
 func gib(v uint64) float64 { return float64(v) / float64(uint64(1)<<30) }
 
 func (m *Manager) download(ctx context.Context, url, dst string, progress func(int64, int64)) error {
+	// Resumable .part transfers make retries cheap; only transient failures
+	// (network errors, 408/429/5xx) are retried, everything else fails fast.
+	var lastErr error
+	for attempt := 0; attempt < httpretry.Attempts; attempt++ {
+		err := m.downloadOnce(ctx, url, dst, progress)
+		if err == nil {
+			return nil
+		}
+		if !httpretry.Retryable(err) {
+			return err
+		}
+		lastErr = err
+		if attempt < httpretry.Attempts-1 {
+			if serr := httpretry.Sleep(ctx, attempt); serr != nil {
+				return serr
+			}
+		}
+	}
+	return lastErr
+}
+
+func (m *Manager) downloadOnce(ctx context.Context, url, dst string, progress func(int64, int64)) error {
 	partial := dst + ".part"
 	var start int64
 	if st, err := os.Stat(partial); err == nil {
@@ -321,7 +339,7 @@ func (m *Manager) download(ctx context.Context, url, dst string, progress func(i
 
 	appendMode := start > 0 && resp.StatusCode == http.StatusPartialContent
 	if resp.StatusCode/100 != 2 {
-		return fmt.Errorf("download HTTP %s", resp.Status)
+		return &httpretry.StatusError{Code: resp.StatusCode}
 	}
 	if start > 0 && !appendMode {
 		start = 0

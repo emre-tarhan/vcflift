@@ -17,7 +17,7 @@ import (
 	"github.com/emre-tarhan/vcflift/internal/vcf"
 )
 
-const Version = "0.9.0"
+const Version = "1.0.0"
 
 type NativeConverter struct {
 	Resources    *resources.Manager

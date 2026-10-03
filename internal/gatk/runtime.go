@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"github.com/emre-tarhan/vcflift/internal/cachelock"
+	"github.com/emre-tarhan/vcflift/internal/httpretry"
 
 	"github.com/emre-tarhan/vcflift/internal/model"
 )
@@ -292,20 +293,19 @@ type githubRelease struct {
 }
 
 func (m *Manager) resolveGitHubAsset(ctx context.Context, asset Asset) (string, string, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, asset.GitHubReleaseAPI, nil)
+	resp, err := httpretry.Do(ctx, m.HTTPClient, func() (*http.Request, error) {
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, asset.GitHubReleaseAPI, nil)
+		if err != nil {
+			return nil, err
+		}
+		req.Header.Set("Accept", "application/vnd.github+json")
+		req.Header.Set("User-Agent", "VCFLift/"+DefaultGATKVersion)
+		return req, nil
+	})
 	if err != nil {
-		return "", "", err
-	}
-	req.Header.Set("Accept", "application/vnd.github+json")
-	req.Header.Set("User-Agent", "VCFLift/"+DefaultGATKVersion)
-	resp, err := m.HTTPClient.Do(req)
-	if err != nil {
-		return "", "", err
+		return "", "", fmt.Errorf("GitHub release metadata: %w", err)
 	}
 	defer resp.Body.Close()
-	if resp.StatusCode/100 != 2 {
-		return "", "", fmt.Errorf("GitHub release metadata HTTP %s", resp.Status)
-	}
 	var release githubRelease
 	if err := json.NewDecoder(io.LimitReader(resp.Body, 4<<20)).Decode(&release); err != nil {
 		return "", "", err
@@ -329,19 +329,18 @@ func (m *Manager) resolveGitHubAsset(ctx context.Context, asset Asset) (string, 
 }
 
 func (m *Manager) fetchChecksum(ctx context.Context, url string) (string, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	resp, err := httpretry.Do(ctx, m.HTTPClient, func() (*http.Request, error) {
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+		if err != nil {
+			return nil, err
+		}
+		req.Header.Set("User-Agent", "VCFLift/"+DefaultGATKVersion)
+		return req, nil
+	})
 	if err != nil {
-		return "", err
-	}
-	req.Header.Set("User-Agent", "VCFLift/"+DefaultGATKVersion)
-	resp, err := m.HTTPClient.Do(req)
-	if err != nil {
-		return "", err
+		return "", fmt.Errorf("checksum: %w", err)
 	}
 	defer resp.Body.Close()
-	if resp.StatusCode/100 != 2 {
-		return "", fmt.Errorf("checksum HTTP %s", resp.Status)
-	}
 	b, err := io.ReadAll(io.LimitReader(resp.Body, 4096))
 	if err != nil {
 		return "", err
@@ -358,6 +357,28 @@ func (m *Manager) fetchChecksum(ctx context.Context, url string) (string, error)
 }
 
 func (m *Manager) download(ctx context.Context, url, dst string, progress func(int64, int64)) error {
+	// Resumable .part transfers make retries cheap; only transient failures
+	// (network errors, 408/429/5xx) are retried, everything else fails fast.
+	var lastErr error
+	for attempt := 0; attempt < httpretry.Attempts; attempt++ {
+		err := m.downloadOnce(ctx, url, dst, progress)
+		if err == nil {
+			return nil
+		}
+		if !httpretry.Retryable(err) {
+			return err
+		}
+		lastErr = err
+		if attempt < httpretry.Attempts-1 {
+			if serr := httpretry.Sleep(ctx, attempt); serr != nil {
+				return serr
+			}
+		}
+	}
+	return lastErr
+}
+
+func (m *Manager) downloadOnce(ctx context.Context, url, dst string, progress func(int64, int64)) error {
 	partial := dst + ".part"
 	var start int64
 	if st, err := os.Stat(partial); err == nil {
@@ -377,7 +398,7 @@ func (m *Manager) download(ctx context.Context, url, dst string, progress func(i
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode/100 != 2 {
-		return fmt.Errorf("download HTTP %s", resp.Status)
+		return &httpretry.StatusError{Code: resp.StatusCode}
 	}
 	appendMode := start > 0 && resp.StatusCode == http.StatusPartialContent
 	if start > 0 && !appendMode {
