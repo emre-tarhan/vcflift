@@ -13,32 +13,32 @@ import (
 // readable: Fyne renders secondary (LowImportance) labels with the theme's
 // disabled color, so it doubles as the secondary text tone.
 var palette = struct {
-	Canvas, Surface, SurfaceAlt, Border        color.NRGBA
-	Ink, Text, Muted, Faint                    color.NRGBA
-	Accent, AccentStrong, AccentSoft, Focus    color.NRGBA
-	Success, SuccessSoft, Warning, Danger      color.NRGBA
-	Disabled, DisabledButton, InputBg, PH      color.NRGBA
+	Canvas, Surface, SurfaceAlt, Border     color.NRGBA
+	Ink, Text, Muted, Faint                 color.NRGBA
+	Accent, AccentStrong, AccentSoft, Focus color.NRGBA
+	Success, SuccessSoft, Warning, Danger   color.NRGBA
+	Disabled, DisabledButton, InputBg, PH   color.NRGBA
 }{
-	Canvas:          color.NRGBA{R: 241, G: 243, B: 246, A: 255},  // canvas
-	Surface:         color.NRGBA{R: 255, G: 255, B: 255, A: 255},  // card
-	SurfaceAlt:      color.NRGBA{R: 237, G: 241, B: 244, A: 255},  // inset strip
-	Border:          color.NRGBA{R: 220, G: 226, B: 232, A: 255},  // hairline
-	Ink:             color.NRGBA{R: 24, G: 36, B: 48, A: 255},     // titles
-	Text:            color.NRGBA{R: 46, G: 60, B: 73, A: 255},     // body
-	Muted:           color.NRGBA{R: 92, G: 108, B: 123, A: 255},   // secondary text
-	Faint:           color.NRGBA{R: 147, G: 161, B: 173, A: 255},  // caps-only labels
-	Accent:          color.NRGBA{R: 53, G: 97, B: 143, A: 255},    // steel blue
-	AccentStrong:    color.NRGBA{R: 43, G: 80, B: 122, A: 255},    // accent text on soft surfaces
-	AccentSoft:      color.NRGBA{R: 228, G: 237, B: 246, A: 255},  // soft accent wash
-	Focus:           color.NRGBA{R: 127, G: 163, B: 198, A: 255},  // focus ring
-	Success:         color.NRGBA{R: 62, G: 125, B: 94, A: 255},
-	SuccessSoft:     color.NRGBA{R: 227, G: 240, B: 232, A: 255},
-	Warning:         color.NRGBA{R: 169, G: 122, B: 44, A: 255},
-	Danger:          color.NRGBA{R: 176, G: 80, B: 73, A: 255},
-	Disabled:        color.NRGBA{R: 107, G: 123, B: 137, A: 255},  // readable secondary-label tone
-	DisabledButton:  color.NRGBA{R: 231, G: 235, B: 239, A: 255},
-	InputBg:         color.NRGBA{R: 248, G: 250, B: 251, A: 255},
-	PH:              color.NRGBA{R: 132, G: 150, B: 164, A: 255},  // placeholder
+	Canvas:         color.NRGBA{R: 241, G: 243, B: 246, A: 255}, // canvas
+	Surface:        color.NRGBA{R: 255, G: 255, B: 255, A: 255}, // card
+	SurfaceAlt:     color.NRGBA{R: 237, G: 241, B: 244, A: 255}, // inset strip
+	Border:         color.NRGBA{R: 220, G: 226, B: 232, A: 255}, // hairline
+	Ink:            color.NRGBA{R: 24, G: 36, B: 48, A: 255},    // titles
+	Text:           color.NRGBA{R: 46, G: 60, B: 73, A: 255},    // body
+	Muted:          color.NRGBA{R: 92, G: 108, B: 123, A: 255},  // secondary text
+	Faint:          color.NRGBA{R: 147, G: 161, B: 173, A: 255}, // caps-only labels
+	Accent:         color.NRGBA{R: 53, G: 97, B: 143, A: 255},   // steel blue
+	AccentStrong:   color.NRGBA{R: 43, G: 80, B: 122, A: 255},   // accent text on soft surfaces
+	AccentSoft:     color.NRGBA{R: 228, G: 237, B: 246, A: 255}, // soft accent wash
+	Focus:          color.NRGBA{R: 127, G: 163, B: 198, A: 255}, // focus ring
+	Success:        color.NRGBA{R: 62, G: 125, B: 94, A: 255},
+	SuccessSoft:    color.NRGBA{R: 227, G: 240, B: 232, A: 255},
+	Warning:        color.NRGBA{R: 169, G: 122, B: 44, A: 255},
+	Danger:         color.NRGBA{R: 176, G: 80, B: 73, A: 255},
+	Disabled:       color.NRGBA{R: 107, G: 123, B: 137, A: 255}, // readable secondary-label tone
+	DisabledButton: color.NRGBA{R: 231, G: 235, B: 239, A: 255},
+	InputBg:        color.NRGBA{R: 248, G: 250, B: 251, A: 255},
+	PH:             color.NRGBA{R: 132, G: 150, B: 164, A: 255}, // placeholder
 }
 
 type genomeTheme struct{ base fyne.Theme }
