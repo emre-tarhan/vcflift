@@ -257,7 +257,7 @@ func Run() {
 			runConversion()
 			return
 		}
-		msg := "Reference data is not ready yet. VCF Lift will download and prepare the required hg38/hg19 data and the UCSC hg38-to-hg19 chain before conversion.\n\nThe chain is subject to the UCSC terms. Continue after reviewing and accepting those terms?\n\nhttps://genome.ucsc.edu/license/"
+		msg := "Reference data is not ready yet. VCF Lift will download and prepare the required hg38/hg19 data plus the UCSC liftOver chains before conversion.\n\nThe chains are subject to the UCSC terms. Continue after reviewing and accepting those terms?\n\nhttps://genome.ucsc.edu/license/"
 		dialog.NewConfirm("Prepare required references", msg, func(ok bool) {
 			if ok {
 				runConversion()
@@ -406,7 +406,7 @@ func Run() {
 		}
 		content := container.NewVBox(
 			widget.NewLabelWithStyle("Reference data is required before conversion", fyne.TextAlignLeading, fyne.TextStyle{Bold: true}),
-			mutedLabel("VCF Lift will download hg38, hg19, the hg38-to-hg19 chain and chromosome aliases. Downloads are resumable, checksum-verified and prepared locally."),
+			mutedLabel("VCF Lift will download hg38, hg19, both UCSC liftOver chains and chromosome aliases. Downloads are resumable, checksum-verified and prepared locally."),
 			mutedLabel("The UCSC chain is downloaded at runtime and is subject to UCSC terms: https://genome.ucsc.edu/license/"),
 		)
 		dialog.NewCustomConfirm("Set up VCF Lift", "Start setup", "Not now", content, func(ok bool) {
@@ -461,7 +461,7 @@ func Run() {
 	about := container.NewVScroll(container.New(
 		layout.NewCustomPaddedLayout(18, 20, 22, 22),
 		container.NewVBox(
-			sectionIntro("About VCF Lift", "Local hg38 to hg19 conversion with explicit validation and auditable rejects."),
+			sectionIntro("About VCF Lift", "Local hg38 ↔ hg19 conversion with explicit validation and auditable rejects."),
 			spacer(12),
 			surface(container.NewVBox(
 				aboutRow("Privacy by design", "VCF and genotype records are processed locally. VCF Lift has no telemetry and does not upload sample data."),
@@ -533,7 +533,7 @@ func buildHeader() fyne.CanvasObject {
 
 	badge := pill(container.NewHBox(
 		canvasLabel("hg38", 13, true, palette.AccentStrong),
-		canvasLabel("to", 12, false, palette.Muted),
+		canvasLabel("↔", 13, false, palette.Muted),
 		canvasLabel("hg19", 13, true, palette.AccentStrong),
 	), palette.AccentSoft)
 
@@ -666,7 +666,7 @@ func conversionPhaseBody(stage model.Stage) string {
 	case 0:
 		return "Inspecting the input and preparing any required references or runtime components."
 	case 1:
-		return "Validating hg38 alleles, running allele-aware liftover, validating hg19 and writing the compressed output."
+		return "Validating source alleles, running allele-aware liftover, validating the target build and writing the compressed output."
 	case 2:
 		return "Creating the tabix index for fast region access."
 	case 3:
@@ -707,7 +707,7 @@ type workflowTracker struct {
 func newWorkflowTracker() (*workflowTracker, fyne.CanvasObject) {
 	defs := []struct{ title, detail string }{
 		{"Prepare input", "Inspect file and prepare required local components"},
-		{"Convert variants", "Validate hg38, lift alleles, validate hg19 and write output"},
+		{"Convert variants", "Validate the source build, lift alleles, validate the target and write output"},
 		{"Create index", "Build the output TBI index"},
 		{"Quality checks", "Verify counts, placeholders and rejected variants"},
 	}
@@ -791,10 +791,12 @@ type resourceRow struct {
 
 func makeResourceRows(manifest resources.Manifest) map[string]*resourceRow {
 	friendly := map[string]struct{ title, detail string }{
-		"hg38_fasta":         {"hg38 reference", "Source reference genome"},
-		"hg19_fasta":         {"hg19 reference", "Target reference genome"},
+		"hg38_fasta":         {"hg38 reference", "Reference genome"},
+		"hg19_fasta":         {"hg19 reference", "Reference genome"},
 		"hg38_to_hg19_chain": {"hg38 to hg19 chain", "UCSC coordinate mapping"},
-		"hg38_aliases":       {"Chromosome aliases", "Contig naming compatibility"},
+		"hg19_to_hg38_chain": {"hg19 to hg38 chain", "UCSC reverse coordinate mapping"},
+		"hg38_aliases":       {"Chromosome aliases (hg38)", "Contig naming compatibility"},
+		"hg19_aliases":       {"Chromosome aliases (hg19)", "Contig naming compatibility"},
 	}
 	out := map[string]*resourceRow{}
 	for _, r := range manifest.Resources {

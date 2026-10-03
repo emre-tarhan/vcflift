@@ -18,7 +18,7 @@ vcflift-cli convert \
   sample.hg38.vcf.gz
 ```
 
-VCF Lift handles input inspection, native engine setup, reference preparation, cache reuse, gVCF dialect selection, hg38 REF validation, allele-aware liftover, hg19 REF validation, BGZF/TBI output and QC reporting.
+VCF Lift handles input inspection, native engine setup, reference preparation, cache reuse, gVCF dialect selection, source REF validation, allele-aware liftover, target REF validation, BGZF/TBI output and QC reporting.
 
 The desktop app exposes the same pipeline as a focused workflow: **choose/drop file → inspect → convert → review result**. It uses a light-only, high-contrast desktop theme. If required references are missing, a first-run setup dialog opens automatically; downloads and local preparation are shown per resource instead of behind one ambiguous progress bar. Reference/cache management lives in a separate Resources area rather than in the primary conversion flow.
 

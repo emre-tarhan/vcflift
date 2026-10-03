@@ -17,9 +17,9 @@ The goal is a scientific desktop utility with clear contrast and low ambiguity. 
 The primary path is:
 
 ```text
-choose or drop hg38 VCF/gVCF
+choose or drop an hg38 or hg19 VCF/gVCF
   -> inspect detected format/assembly/index/sample count
-  -> review automatic hg19 output path
+  -> review the automatic output path (hg19 for hg38 input, hg38 for hg19 input)
   -> convert
   -> review result and QC report
 ```
@@ -38,10 +38,10 @@ The native pipeline streams source validation, allele-aware liftover, target val
 On startup the app checks the local reference profile. If required resources are absent, a setup dialog opens automatically and explains that:
 
 - hg38 and hg19 references are required;
-- the UCSC hg38-to-hg19 chain and chromosome aliases will be downloaded;
+- the UCSC liftOver chains (both directions) and chromosome aliases will be downloaded;
 - downloads are resumable and checksum-verified;
 - processing remains local;
-- the chain is subject to UCSC terms.
+- the chains are subject to UCSC terms.
 
 Starting setup switches to the Resources view and begins preparation. A user may dismiss the dialog, but conversion will still require the missing resources and will prompt before downloading the UCSC chain.
 
