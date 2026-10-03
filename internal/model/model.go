@@ -1,0 +1,136 @@
+package model
+
+import "time"
+
+type FileKind string
+
+const (
+	FileKindUnknown FileKind = "unknown"
+	FileKindVCF     FileKind = "vcf"
+	FileKindGVCF    FileKind = "gvcf"
+)
+
+type ConversionMode string
+
+const (
+	ModeVariantVCF               ConversionMode = "variant_vcf"
+	ModeGVCFGenotypeThenLift     ConversionMode = "gvcf_genotype_then_lift"
+	ModeGVCFCandidateVariants    ConversionMode = "gvcf_candidate_variants"
+	ModeGVCFCalledVariants       ConversionMode = ModeGVCFCandidateVariants // deprecated development alias
+	ModeGVCFPreserveExperimental ConversionMode = "gvcf_preserve_experimental"
+)
+
+type GVCFDialect string
+
+const (
+	GVCFDialectUnknown     GVCFDialect = "unknown"
+	GVCFDialectGATK        GVCFDialect = "gatk_non_ref"
+	GVCFDialectDeepVariant GVCFDialect = "deepvariant_star"
+	GVCFDialectStar        GVCFDialect = "star_placeholder"
+	GVCFDialectMixed       GVCFDialect = "mixed_placeholders"
+)
+
+type ContigStyle string
+
+const (
+	ContigStyleUnknown ContigStyle = "unknown"
+	ContigStyleUCSC    ContigStyle = "ucsc"
+	ContigStyleGRCh    ContigStyle = "grch"
+	ContigStyleMixed   ContigStyle = "mixed"
+)
+
+type Assembly string
+
+const (
+	AssemblyUnknown Assembly = "unknown"
+	AssemblyHG38    Assembly = "hg38"
+	AssemblyHG19    Assembly = "hg19"
+)
+
+type Inspection struct {
+	Path               string
+	Kind               FileKind
+	Assembly           Assembly
+	ContigStyle        ContigStyle
+	InputIndexPath     string
+	InputIndexKind     string
+	Samples            []string
+	HasNonRefAllele    bool
+	HasStarAllele      bool
+	GVCFDialect        GVCFDialect
+	DeepVariantVersion string
+	HasGVCFBlocks      bool
+	HasEndInfo         bool
+	HasReferenceBlock  bool
+	HeaderReference    string
+	Notes              []string
+}
+
+type Plan struct {
+	Inspection   Inspection
+	Mode         ConversionMode
+	OutputPath   string
+	Warnings     []string
+	Experimental bool
+}
+
+type Stage string
+
+const (
+	StagePreparing        Stage = "preparing"
+	StageInspecting       Stage = "inspecting"
+	StageResources        Stage = "resources"
+	StageRuntime          Stage = "runtime"
+	StageSourceValidation Stage = "source_validation"
+	StageLiftover         Stage = "liftover"
+	StageGVCFValidation   Stage = "gvcf_validation"
+	StageGenotyping       Stage = "genotyping"
+	StageTargetValidation Stage = "target_validation"
+	StageSorting          Stage = "sorting"
+	StageIndexing         Stage = "indexing"
+	StageQC               Stage = "qc"
+	StageComplete         Stage = "complete"
+)
+
+type ProgressEvent struct {
+	Stage   Stage
+	Item    string
+	Message string
+	Current int64
+	Total   int64
+}
+
+type JobConfig struct {
+	InputPath         string
+	OutputPath        string
+	Mode              ConversionMode
+	Threads           int
+	KeepRejected      bool
+	PreserveSource    bool
+	NeedsSourceRename bool
+	ReuseInputIndex   bool
+	Overwrite         bool
+}
+
+type Result struct {
+	InputKind                   FileKind
+	Mode                        ConversionMode
+	InputRecords                int64
+	InputVariants               int64  `json:",omitempty"` // retained for compatibility; ordinary VCF only
+	SourceNonRefCalls           int64  `json:",omitempty"`
+	SourceNonRefPASSCalls       int64  `json:",omitempty"`
+	SourceCandidateVariants     int64  `json:",omitempty"`
+	PreprocessingExcluded       *int64 `json:",omitempty"`
+	LiftoverInputVariants       int64
+	LiftedVariants              int64
+	RejectedVariants            int64
+	OutputStarAlleleRecords     int64
+	OutputNonRefAlleleRecords   int64
+	CandidateConservationPassed *bool `json:",omitempty"`
+	OutputPath                  string
+	IndexPath                   string
+	RejectPath                  string
+	ReportPath                  string
+	StartedAt                   time.Time
+	CompletedAt                 time.Time
+}

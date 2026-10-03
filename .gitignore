@@ -1,0 +1,13 @@
+/bin/
+/dist/
+*.exe
+*.out
+*.tmp
+.DS_Store
+/build/
+/.engine-build/
+/internal/enginebundle/payload/linux-*/
+/internal/enginebundle/payload/windows-*/
+
+/artifacts/
+.zcodeignore

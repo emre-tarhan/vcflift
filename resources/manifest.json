@@ -1,0 +1,48 @@
+{
+  "version": 1,
+  "resources": [
+    {
+      "id": "hg38_fasta",
+      "name": "UCSC hg38 reference FASTA",
+      "url": "https://hgdownload.soe.ucsc.edu/goldenPath/hg38/bigZips/hg38.fa.gz",
+      "filename": "hg38.fa.gz",
+      "md5": "1c9dcaddfa41027f17cd8f7a82c7293b",
+      "transform": "gzip_fasta",
+      "prepared_filename": "hg38.fa",
+      "download_bytes": 983564288,
+      "prepared_bytes": 3460300800
+    },
+    {
+      "id": "hg19_fasta",
+      "name": "UCSC hg19 reference FASTA",
+      "url": "https://hgdownload.soe.ucsc.edu/goldenPath/hg19/bigZips/latest/hg19.fa.gz",
+      "filename": "hg19.fa.gz",
+      "md5": "7707462fc100c7d987c075bc146b16ae",
+      "transform": "gzip_fasta",
+      "prepared_filename": "hg19.fa",
+      "download_bytes": 979369984,
+      "prepared_bytes": 3355443200
+    },
+    {
+      "id": "hg38_to_hg19_chain",
+      "name": "UCSC hg38 to hg19 liftOver chain",
+      "url": "https://hgdownload.soe.ucsc.edu/goldenPath/hg38/liftOver/hg38ToHg19.over.chain.gz",
+      "filename": "hg38ToHg19.over.chain.gz",
+      "checksum_index_url": "https://hgdownload.soe.ucsc.edu/goldenPath/hg38/liftOver/md5sum.txt",
+      "checksum_index_name": "hg38ToHg19.over.chain.gz",
+      "transform": "none",
+      "license_url": "https://genome.ucsc.edu/license/",
+      "requires_acceptance": true,
+      "download_bytes": 2097152
+    },
+    {
+      "id": "hg38_aliases",
+      "name": "UCSC hg38 chromosome aliases",
+      "url": "https://hgdownload.soe.ucsc.edu/goldenPath/hg38/bigZips/hg38.chromAlias.txt",
+      "filename": "hg38.chromAlias.txt",
+      "md5": "889533482362d1c7d2976e12d8367737",
+      "transform": "none",
+      "download_bytes": 1048576
+    }
+  ]
+}

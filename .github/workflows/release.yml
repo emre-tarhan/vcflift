@@ -1,0 +1,147 @@
+name: Release portable builds
+
+on:
+  workflow_dispatch:
+    inputs:
+      score_ref:
+        description: Exact freeseek/score commit/tag to embed
+        required: true
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+env:
+  BCFTOOLS_VERSION: "1.24"
+
+jobs:
+  guard:
+    runs-on: ubuntu-22.04
+    outputs:
+      score_ref: ${{ steps.ref.outputs.score_ref }}
+    steps:
+      - id: ref
+        shell: bash
+        env:
+          INPUT_REF: ${{ inputs.score_ref }}
+          PINNED_REF: ${{ vars.VCFLIFT_SCORE_REF }}
+        run: |
+          ref="$INPUT_REF"
+          if [ -z "$ref" ]; then ref="$PINNED_REF"; fi
+          if [ -z "$ref" ] || [ "$ref" = "master" ]; then
+            echo "Release builds require an exact freeseek/score commit/tag via workflow input or VCFLIFT_SCORE_REF repository variable." >&2
+            exit 1
+          fi
+          echo "score_ref=$ref" >> "$GITHUB_OUTPUT"
+
+  engine-linux:
+    needs: guard
+    runs-on: ubuntu-22.04
+    env:
+      SCORE_REF: ${{ needs.guard.outputs.score_ref }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with: { go-version: "1.23.x" }
+      - run: sudo apt-get update && sudo apt-get install -y build-essential libbz2-dev liblzma-dev libcurl4-openssl-dev libssl-dev libdeflate-dev zlib1g-dev
+      - run: bash ./scripts/build-engine-linux.sh
+      - uses: actions/upload-artifact@v7
+        with:
+          name: engine-linux-amd64
+          path: build/engine/linux-amd64
+
+  engine-windows:
+    needs: guard
+    runs-on: windows-2025
+    env:
+      SCORE_REF: ${{ needs.guard.outputs.score_ref }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with: { go-version: "1.23.x" }
+      - uses: msys2/setup-msys2@v2
+        with:
+          msystem: UCRT64
+          update: true
+          install: >-
+            base-devel git curl tar bzip2
+            mingw-w64-ucrt-x86_64-toolchain mingw-w64-ucrt-x86_64-libdeflate
+            mingw-w64-ucrt-x86_64-zlib mingw-w64-ucrt-x86_64-bzip2
+            mingw-w64-ucrt-x86_64-xz mingw-w64-ucrt-x86_64-curl mingw-w64-ucrt-x86_64-autotools
+            mingw-w64-ucrt-x86_64-go
+      - shell: msys2 {0}
+        run: bash ./scripts/build-engine-windows-msys2.sh
+      - uses: actions/upload-artifact@v7
+        with:
+          name: engine-windows-amd64
+          path: build/engine/windows-amd64
+
+  package-linux:
+    needs: engine-linux
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with: { go-version: "1.23.x" }
+      - uses: actions/download-artifact@v7
+        with:
+          name: engine-linux-amd64
+          path: build/engine/linux-amd64
+      - run: bash ./packaging/stage-engine.sh build/engine/linux-amd64 linux-amd64
+      - run: sudo apt-get update && sudo apt-get install -y gcc pkg-config libgl1-mesa-dev xorg-dev libwayland-dev libxkbcommon-dev zip
+      - run: go mod download
+      - run: mkdir -p dist && (cd build/engine/linux-amd64 && zip -qr ../../../dist/vcflift-engine-linux-amd64.zip .)
+      - run: go build -trimpath -ldflags="-s -w" -o dist/VCFLift-linux-amd64 ./cmd/vcflift
+      - run: go build -trimpath -ldflags="-s -w" -o dist/vcflift-cli-linux-amd64 ./cmd/vcflift-cli
+      - uses: actions/upload-artifact@v7
+        with:
+          name: release-linux-amd64
+          path: dist/*
+
+  package-windows:
+    needs: engine-windows
+    runs-on: windows-2025
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with: { go-version: "1.23.x" }
+      - uses: actions/download-artifact@v7
+        with:
+          name: engine-windows-amd64
+          path: build/engine/windows-amd64
+      - shell: bash
+        run: bash ./packaging/stage-engine.sh build/engine/windows-amd64 windows-amd64
+      - uses: msys2/setup-msys2@v2
+        with:
+          msystem: UCRT64
+          update: true
+          install: mingw-w64-ucrt-x86_64-gcc
+      - shell: pwsh
+        run: |
+          $env:PATH = "C:\msys64\ucrt64\bin;$env:PATH"
+          New-Item -ItemType Directory -Force dist | Out-Null
+          Compress-Archive -Path build/engine/windows-amd64/* -DestinationPath dist/vcflift-engine-windows-amd64.zip -Force
+          go mod download
+          go build -trimpath -ldflags="-s -w -H windowsgui" -o dist/VCFLift-windows-amd64.exe ./cmd/vcflift
+          go build -trimpath -ldflags="-s -w" -o dist/vcflift-cli-windows-amd64.exe ./cmd/vcflift-cli
+      - uses: actions/upload-artifact@v7
+        with:
+          name: release-windows-amd64
+          path: dist/*
+
+  publish:
+    if: startsWith(github.ref, 'refs/tags/')
+    needs: [package-linux, package-windows]
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/download-artifact@v7
+        with:
+          pattern: release-*
+          merge-multiple: true
+          path: dist
+      - run: cd dist && sha256sum * > SHA256SUMS
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*

@@ -1,0 +1,78 @@
+name: Native engine builds
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/engine-build.yml"
+      - "scripts/build-engine-linux.sh"
+      - "scripts/build-engine-windows-msys2.sh"
+      - "scripts/smoke-test-engine.sh"
+      - "tools/engine-manifest/**"
+
+  workflow_dispatch:
+    inputs:
+      score_ref:
+        description: freeseek/score git ref (pin a commit for release candidates)
+        required: false
+        default: master
+
+permissions:
+  contents: read
+
+env:
+  BCFTOOLS_VERSION: "1.24"
+  SCORE_REF: ${{ inputs.score_ref || 'master' }}
+
+jobs:
+  linux-amd64:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version: "1.23.x"
+      - name: Install build dependencies
+        run: sudo apt-get update && sudo apt-get install -y build-essential libbz2-dev liblzma-dev libcurl4-openssl-dev libssl-dev libdeflate-dev zlib1g-dev
+      - name: Build engine
+        run: bash ./scripts/build-engine-linux.sh
+      - uses: actions/upload-artifact@v7
+        with:
+          name: engine-linux-amd64
+          path: build/engine/linux-amd64
+
+  windows-amd64:
+    runs-on: windows-2025
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version: "1.23.x"
+      - uses: msys2/setup-msys2@v2
+        with:
+          msystem: UCRT64
+          update: true
+          install: >-
+            base-devel
+            git
+            curl
+            tar
+            bzip2
+            mingw-w64-ucrt-x86_64-toolchain
+            mingw-w64-ucrt-x86_64-go
+            mingw-w64-ucrt-x86_64-libdeflate
+            mingw-w64-ucrt-x86_64-zlib
+            mingw-w64-ucrt-x86_64-bzip2
+            mingw-w64-ucrt-x86_64-xz
+            mingw-w64-ucrt-x86_64-curl
+            mingw-w64-ucrt-x86_64-autotools
+      - name: Build engine in MSYS2
+        shell: msys2 {0}
+        run: |
+          go version
+          bash ./scripts/build-engine-windows-msys2.sh
+      - uses: actions/upload-artifact@v7
+        with:
+          name: engine-windows-amd64
+          path: build/engine/windows-amd64
