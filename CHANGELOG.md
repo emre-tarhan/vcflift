@@ -3,6 +3,7 @@
 ## Unreleased
 
 - Windows: child processes (bcftools, java) no longer open console windows during GUI conversions.
+- Real-data gates for v1.0: the v0.9.0 build reproduces the validated DeepVariant gVCF run bit-for-bit; an ordinary-VCF gate on the GIAB HG002 v4.2.1 benchmark passes with 98.85% independent GRCh37 cross-check concordance.
 - Cross-process cache locking: reference preparation, engine installation, GATK runtime preparation and cache cleaning take an exclusive advisory lock and fail fast with a clear message when another VCF Lift process is already working on the same cache.
 
 ## v0.9.0 — first public release (2026-10-03)

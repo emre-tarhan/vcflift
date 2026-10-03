@@ -33,7 +33,7 @@
 - [x] embedded engine shown as read-only/included; development-engine install removed from end-user GUI.
 - [x] cross-process cache/download locking (`internal/cachelock`, fail-fast advisory lock).
 - [ ] retry/backoff hardening for transient network failures.
-- [ ] first-run timing benchmark on representative home connection / SSD.
+- [x] first-run timing benchmark on representative home connection / SSD (6m18s, full reference preparation from empty cache).
 
 ## GUI
 
@@ -64,8 +64,8 @@
 ### Ordinary VCF
 
 - [x] implementation + automated coverage.
-- [ ] matching real DeepVariant final VCF end-to-end run.
-- [ ] compare ordinary-VCF result to validated gVCF candidate route.
+- [x] real-data ordinary-VCF gate: GIAB HG002 v4.2.1 GRCh38 benchmark VCF, `variant_vcf` mode (4,048,342 in / 4,043,367 lifted / 4,975 rejected, REF validations + TBI pass) with independent GRCh37 cross-check at 98.85% exact allele concordance after normalization (see docs/VALIDATION.md).
+- [x] compare ordinary-VCF result to validated gVCF candidate route: the DeepVariant-derived variant-only file carries `<*>` on variant records and re-enters the gVCF route, reproducing 5,422,963 / 4,942,650 / 480,313 exactly.
 
 ### GATK/HaplotypeCaller gVCF
 
