@@ -1,6 +1,8 @@
 # Changelog
 
-## Unreleased
+## v1.1.0 (2026-10-03)
+
+Bidirectional conversion with an explicit output contract. The validated hg38→hg19 pipeline is unchanged step-for-step; everything below is additive.
 
 - Reverse conversion hg19/GRCh37 → hg38: inputs detected as hg19 (UCSC or GRCh37/b37 primary naming) now convert in the opposite direction automatically — same allele-aware engine, REF validation against hg19 before and hg38 after liftover, same reject auditing, `.hg38.vcf.gz` output naming. First reverse use downloads the UCSC hg19→hg38 chain (same license terms) and hg19 chromosome aliases. DeepVariant-style gVCFs are supported through candidate extraction; GATK-style hg19 gVCFs are rejected with guidance (managed GenotypeGVCFs runtime is hg38-only). Target naming profiles remain forward-only. The forward hg38→hg19 pipeline is unchanged.
 - Assembly detection now uses a majority contig-length vote: hs37d5/GRCh37 headers carry the rCRS MT (16569), which collides with the hg38 MT length; previously such headers were undetectable and silently defaulted to forward.

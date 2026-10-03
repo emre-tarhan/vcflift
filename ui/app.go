@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"image/color"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -224,10 +225,25 @@ func Run() {
 					successRate = 100 * float64(result.LiftedVariants) / float64(total)
 					rejectRate = 100 * float64(result.RejectedVariants) / float64(total)
 				}
-				setStatus("Conversion complete", fmt.Sprintf("%d variants were written to the hg19 output. QC and indexing completed successfully.", result.LiftedVariants))
+				targetWord := "hg19"
+				if result.Direction == model.DirectionReverse {
+					targetWord = "hg38"
+				}
+				// Plain-language accounting: relate rejects to what actually
+				// entered liftover, not to raw gVCF record counts.
+				var plain string
+				if result.SourceCandidateVariants > 0 {
+					candidateRate := 100 * float64(result.RejectedVariants) / float64(result.LiftoverInputVariants)
+					plain = fmt.Sprintf("Of %s input records, %s carried variant calls; %s of those (%.3f%%) fell into chain gaps and were rejected.",
+						groupDigits(result.InputRecords), groupDigits(result.SourceCandidateVariants), groupDigits(result.RejectedVariants), candidateRate)
+				} else {
+					plain = fmt.Sprintf("Of %s input records, %s (%.3f%%) fell into chain gaps and were rejected.",
+						groupDigits(result.InputRecords), groupDigits(result.RejectedVariants), rejectRate)
+				}
+				setStatus("Conversion complete", fmt.Sprintf("%s variants were written to the %s output. QC and indexing completed successfully.", groupDigits(result.LiftedVariants), targetWord))
 				dialog.ShowInformation("Conversion complete", fmt.Sprintf(
-					"Lifted variants: %d (%.3f%%)\nRejected variants: %d (%.3f%%)\n\nOutput\n%s\n\nQC report\n%s",
-					result.LiftedVariants, successRate, result.RejectedVariants, rejectRate, result.OutputPath, result.ReportPath,
+					"%s\n\nLifted variants: %s (%.3f%%)\nRejected variants: %s (%.3f%%)\n\nOutput\n%s\n\nQC report\n%s",
+					plain, groupDigits(result.LiftedVariants), successRate, groupDigits(result.RejectedVariants), rejectRate, result.OutputPath, result.ReportPath,
 				), w)
 			})
 		}()
@@ -879,4 +895,19 @@ func displayKind(kind model.FileKind) string {
 	default:
 		return strings.ToUpper(string(kind))
 	}
+}
+
+// groupDigits renders large record counts readably (4,942,650).
+func groupDigits(n int64) string {
+	s := strconv.FormatInt(n, 10)
+	if len(s) <= 3 {
+		return s
+	}
+	var parts []string
+	for len(s) > 3 {
+		parts = append([]string{s[len(s)-3:]}, parts...)
+		s = s[:len(s)-3]
+	}
+	parts = append([]string{s}, parts...)
+	return strings.Join(parts, ",")
 }

@@ -248,5 +248,7 @@ Current release gates are tracked in [`docs/RELEASE_CHECKLIST.md`](docs/RELEASE_
 - [`docs/GVCF.md`](docs/GVCF.md)
 - [`docs/GUI.md`](docs/GUI.md)
 - [`docs/REJECTS.md`](docs/REJECTS.md)
+- [`docs/TARGET_PROFILES.md`](docs/TARGET_PROFILES.md)
 - [`docs/VALIDATION.md`](docs/VALIDATION.md)
 - [`docs/RELEASE_CHECKLIST.md`](docs/RELEASE_CHECKLIST.md)
+- [`docs/ROADMAP.md`](docs/ROADMAP.md)

@@ -1,4 +1,4 @@
-# v1.0 release-readiness checklist
+# Release-readiness checklist (v1.0 → v1.1.0)
 
 ## Repository identity
 
@@ -83,6 +83,35 @@
 - [x] run matrix on validated 480,313-record reject set locally.
 - [ ] manually/independently inspect newly rescued representatives.
 - [x] keep production plugin defaults after first sweep (best tested rescue 165 / 480,313 = 0.034353%).
+
+## v1.1.0 additions
+
+### Output contract (P0)
+
+- [x] GUI one-sentence gVCF contract; QC `output_class: "variant_vcf"` on every conversion; `gvcf_blocks_dropped` for gVCF inputs; docs narrowed from "gVCF conversion" to variant-VCF deliverable.
+- [x] 98.85% cross-check headline carries its method caveat in README/CHANGELOG.
+
+### Target naming profiles
+
+- [x] `--target-profile` CLI + GUI dropdown (`ucsc-hg19` default unchanged, `grch37-primary`, `hs37d5`).
+- [x] grch37-primary gate: GIAB HG002 GRCh38 → GRCh37 primary naming, liftover rejects identical to baseline, 342 non-primary drops, 99.10% exact concordance with the official GRCh37 benchmark (docs/VALIDATION.md gate 4).
+- [x] optional `--grch37-fasta` second REF check (pure faidx comparison; `bcftools norm -N -c e` skips the check when normalization is off — documented).
+
+### Reverse direction hg19/GRCh37 → hg38
+
+- [x] automatic direction detection; majority contig-length vote fixes hs37d5/GRCh37 headers (rCRS MT collides with hg38 MT length).
+- [x] GRCh/b37 naming accepted via hg19 chromAlias rename map.
+- [x] UCSC hg19→hg38 chain + hg19 aliases added as managed resources (checksum-verified; same UCSC license acceptance).
+- [x] GATK-style hg19 gVCF rejected with guidance; DeepVariant-style gVCF via candidate extraction; profiles blocked in reverse.
+- [x] reverse gate: GIAB HG002 GRCh37 benchmark, 4,033,796 in / 4,033,574 lifted / 222 rejected, zero REF mismatches both sides, 98.74% exact concordance with the official GRCh38 benchmark (docs/VALIDATION.md gate 5).
+- [x] forward pipeline verified unchanged step-for-step (names, args, stage mapping) by the existing plan tests.
+
+### Release hygiene
+
+- [x] `Version` const → 1.1.0; Windows version metadata regenerated from it by `build.sh`.
+- [x] CHANGELOG v1.1.0 section; `docs/ROADMAP.md` version discipline + shipped/next.
+- [x] full non-dev build (`build.sh`, module verify + tests + vet + Linux/Windows artifacts) passing on the release machine.
+- [ ] tag `v1.1.0` and push (release CI publishes with SHA256SUMS).
 
 ## v1.0 rule
 
