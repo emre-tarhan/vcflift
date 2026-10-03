@@ -34,8 +34,10 @@ type Prepared struct {
 	Root        string
 	HG38FASTA   string
 	HG19FASTA   string
-	Chain       string
+	Chain       string // hg38 -> hg19
+	Chain19To38 string // hg19 -> hg38 (reverse direction)
 	HG38Aliases string
+	HG19Aliases string
 }
 
 func NewManager(root string) *Manager {
@@ -157,7 +159,9 @@ func (m *Manager) Prepare(ctx context.Context, manifest Manifest, progress func(
 		HG38FASTA:   paths["hg38_fasta"],
 		HG19FASTA:   paths["hg19_fasta"],
 		Chain:       paths["hg38_to_hg19_chain"],
+		Chain19To38: paths["hg19_to_hg38_chain"],
 		HG38Aliases: paths["hg38_aliases"],
+		HG19Aliases: paths["hg19_aliases"],
 	}, nil
 }
 

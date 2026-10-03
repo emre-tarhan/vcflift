@@ -15,6 +15,7 @@ type Toolchain struct {
 	HG38FASTA       string
 	HG19FASTA       string
 	Chain38To19     string
+	Chain19To38     string
 	SourceRenameMap string
 }
 
@@ -36,7 +37,12 @@ type Pipeline struct {
 // All shell metacharacters are avoided; the runner connects
 // stdout/stdin with os/exec pipes so the same plan works on Windows and Linux.
 func BuildPipeline(tc Toolchain, cfg model.JobConfig, rejectPath, tempOutput string) (Pipeline, error) {
-	if tc.BCFTools == "" || tc.HG38FASTA == "" || tc.HG19FASTA == "" || tc.Chain38To19 == "" {
+	reverse := cfg.Direction == model.DirectionReverse
+	chain := tc.Chain38To19
+	if reverse {
+		chain = tc.Chain19To38
+	}
+	if tc.BCFTools == "" || tc.HG38FASTA == "" || tc.HG19FASTA == "" || chain == "" {
 		return Pipeline{}, fmt.Errorf("incomplete native toolchain")
 	}
 	if cfg.InputPath == "" || tempOutput == "" {
@@ -48,8 +54,23 @@ func BuildPipeline(tc Toolchain, cfg model.JobConfig, rejectPath, tempOutput str
 	if cfg.Mode == model.ModeGVCFPreserveExperimental {
 		return Pipeline{}, fmt.Errorf("gVCF reference-block preservation requires the block-aware preprocessor and is not enabled yet")
 	}
-	if cfg.Mode == model.ModeGVCFGenotypeThenLift && (tc.Java == "" || tc.GATKJar == "") {
-		return Pipeline{}, fmt.Errorf("GATK GenotypeGVCFs runtime is required for the default gVCF conversion mode")
+	if cfg.Mode == model.ModeGVCFGenotypeThenLift {
+		if reverse {
+			return Pipeline{}, fmt.Errorf("GATK GenotypeGVCFs is hg38-only; genotype hg19 gVCFs externally before reverse conversion")
+		}
+		if tc.Java == "" || tc.GATKJar == "" {
+			return Pipeline{}, fmt.Errorf("GATK GenotypeGVCFs runtime is required for the default gVCF conversion mode")
+		}
+	}
+
+	// Direction-relative references: source FASTA, target FASTA.
+	srcFASTA, tgtFASTA := tc.HG38FASTA, tc.HG19FASTA
+	validateSrcName := "validate hg38 reference alleles"
+	validateTgtName := "validate hg19 reference alleles"
+	if reverse {
+		srcFASTA, tgtFASTA = tc.HG19FASTA, tc.HG38FASTA
+		validateSrcName = "validate source hg19 reference alleles"
+		validateTgtName = "validate target hg38 reference alleles"
 	}
 
 	p := Pipeline{Mode: cfg.Mode, Env: map[string]string{}}
@@ -118,7 +139,7 @@ func BuildPipeline(tc Toolchain, cfg model.JobConfig, rejectPath, tempOutput str
 		srcArgs = append(srcArgs, threadArgs...)
 		srcArgs = append(srcArgs, genotypedVCF)
 		p.Steps = append(p.Steps, Step{Name: "validate genotyped hg38 variants", Executable: tc.BCFTools, Args: srcArgs, PipeToNext: true})
-		appendLiftoverTail(&p, tc, threadArgs, rejectPath, tempOutput)
+		appendLiftoverTail(&p, tc.BCFTools, srcFASTA, tgtFASTA, validateTgtName, chain, threadArgs, rejectPath, tempOutput)
 		return p, nil
 	}
 
@@ -148,38 +169,38 @@ func BuildPipeline(tc Toolchain, cfg model.JobConfig, rejectPath, tempOutput str
 	}
 
 	// Validate source REF after any chromosome renaming / gVCF allele trimming.
-	srcArgs := []string{"norm", "-f", tc.HG38FASTA, "-c", "e", "-Ou"}
+	srcArgs := []string{"norm", "-f", srcFASTA, "-c", "e", "-Ou"}
 	srcArgs = append(srcArgs, threadArgs...)
 	if !inputAlreadyPiped {
 		srcArgs = append(srcArgs, cfg.InputPath)
 	}
-	p.Steps = append(p.Steps, Step{Name: "validate hg38 reference alleles", Executable: tc.BCFTools, Args: srcArgs, PipeToNext: true})
-	appendLiftoverTail(&p, tc, threadArgs, rejectPath, tempOutput)
+	p.Steps = append(p.Steps, Step{Name: validateSrcName, Executable: tc.BCFTools, Args: srcArgs, PipeToNext: true})
+	appendLiftoverTail(&p, tc.BCFTools, srcFASTA, tgtFASTA, validateTgtName, chain, threadArgs, rejectPath, tempOutput)
 	return p, nil
 }
 
-func appendLiftoverTail(p *Pipeline, tc Toolchain, threadArgs []string, rejectPath, tempOutput string) {
+func appendLiftoverTail(p *Pipeline, bcftools, srcFASTA, tgtFASTA, validateTgtName, chain string, threadArgs []string, rejectPath, tempOutput string) {
 	liftoverArgs := []string{"+liftover", "-Ou"}
 	liftoverArgs = append(liftoverArgs, threadArgs...)
 	liftoverArgs = append(liftoverArgs,
 		"--",
-		"-s", tc.HG38FASTA,
-		"-f", tc.HG19FASTA,
-		"-c", tc.Chain38To19,
+		"-s", srcFASTA,
+		"-f", tgtFASTA,
+		"-c", chain,
 		"--reject", rejectPath,
 		"--reject-type", "z",
 		"--write-src",
 		"--write-reject",
 	)
-	p.Steps = append(p.Steps, Step{Name: "allele-aware liftover", Executable: tc.BCFTools, Args: liftoverArgs, PipeToNext: true})
+	p.Steps = append(p.Steps, Step{Name: "allele-aware liftover", Executable: bcftools, Args: liftoverArgs, PipeToNext: true})
 
-	targetArgs := []string{"norm", "-f", tc.HG19FASTA, "-c", "e", "-Ou"}
+	targetArgs := []string{"norm", "-f", tgtFASTA, "-c", "e", "-Ou"}
 	targetArgs = append(targetArgs, threadArgs...)
-	p.Steps = append(p.Steps, Step{Name: "validate hg19 reference alleles", Executable: tc.BCFTools, Args: targetArgs, PipeToNext: true})
+	p.Steps = append(p.Steps, Step{Name: validateTgtName, Executable: bcftools, Args: targetArgs, PipeToNext: true})
 
 	sortArgs := []string{"sort", "-Oz", "-o", tempOutput}
 	p.Steps = append(p.Steps,
-		Step{Name: "sort and compress", Executable: tc.BCFTools, Args: sortArgs, PipeToNext: false},
-		Step{Name: "index", Executable: tc.BCFTools, Args: []string{"index", "--tbi", "--force", tempOutput}, PipeToNext: false},
+		Step{Name: "sort and compress", Executable: bcftools, Args: sortArgs, PipeToNext: false},
+		Step{Name: "index", Executable: bcftools, Args: []string{"index", "--tbi", "--force", tempOutput}, PipeToNext: false},
 	)
 }

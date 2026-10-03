@@ -57,14 +57,26 @@ func (c *NativeConverter) Convert(ctx context.Context, cfg model.JobConfig, prog
 	if cfg.OutputPath == "" {
 		cfg.OutputPath = plan.OutputPath
 	}
+	if cfg.Direction == "" {
+		cfg.Direction = plan.Direction
+	}
+	if cfg.Direction == "" {
+		cfg.Direction = model.DirectionForward
+	}
 	if !modeCompatible(plan.Inspection.Kind, cfg.Mode) {
 		return nil, fmt.Errorf("requested mode %q is incompatible with detected input %q", cfg.Mode, plan.Inspection.Kind)
+	}
+	if cfg.Mode == model.ModeGVCFGenotypeThenLift && cfg.Direction == model.DirectionReverse {
+		return nil, fmt.Errorf("GATK GenotypeGVCFs is hg38-only; genotype hg19 gVCFs externally before reverse conversion")
 	}
 	prof, err := profile.Parse(cfg.TargetProfile)
 	if err != nil {
 		return nil, err
 	}
 	cfg.TargetProfile = string(prof)
+	if cfg.Direction == model.DirectionReverse && !prof.IsDefault() {
+		return nil, fmt.Errorf("target naming profiles apply to the forward hg38 to hg19 direction only")
+	}
 	if cfg.GRCh37FASTA != "" {
 		if !prof.RenamesToGRCh37() {
 			return nil, fmt.Errorf("grch37 FASTA second REF check requires the grch37-primary or hs37d5 target profile")
@@ -140,9 +152,14 @@ func (c *NativeConverter) Convert(ctx context.Context, cfg model.JobConfig, prog
 	}
 
 	renameMap := filepath.Join(prepared.Root, "hg38.alias-to-ucsc.tsv")
+	aliasSource := prepared.HG38Aliases
+	if cfg.Direction == model.DirectionReverse {
+		renameMap = filepath.Join(prepared.Root, "hg19.alias-to-ucsc.tsv")
+		aliasSource = prepared.HG19Aliases
+	}
 	if cfg.NeedsSourceRename {
 		if _, err := os.Stat(renameMap); errors.Is(err, os.ErrNotExist) {
-			if err := resources.BuildRenameMap(prepared.HG38Aliases, renameMap); err != nil {
+			if err := resources.BuildRenameMap(aliasSource, renameMap); err != nil {
 				return nil, fmt.Errorf("build chromosome alias map: %w", err)
 			}
 		}
@@ -166,7 +183,8 @@ func (c *NativeConverter) Convert(ctx context.Context, cfg model.JobConfig, prog
 		BCFTools: inst.BCFTools, PluginDir: inst.PluginDir,
 		Java: c.GATK.Java, GATKJar: c.GATK.Jar,
 		HG38FASTA: prepared.HG38FASTA, HG19FASTA: prepared.HG19FASTA,
-		Chain38To19: prepared.Chain, SourceRenameMap: renameMap,
+		Chain38To19: prepared.Chain, Chain19To38: prepared.Chain19To38,
+		SourceRenameMap: renameMap,
 	}
 	pipeline, err := engine.BuildPipeline(tc, cfg, rejectPath, tempOutput)
 	if err != nil {
@@ -287,9 +305,13 @@ func (c *NativeConverter) Convert(ctx context.Context, cfg model.JobConfig, prog
 
 	reportPath := reportPathFor(cfg.OutputPath)
 	completed := time.Now().UTC()
+	sourceAssembly, targetAssembly := "hg38", "hg19"
+	if cfg.Direction == model.DirectionReverse {
+		sourceAssembly, targetAssembly = "hg19", "hg38"
+	}
 	doc := report.Document{
 		Tool: "VCF Lift", ToolVersion: Version,
-		SourceAssembly: "hg38", TargetAssembly: "hg19",
+		SourceAssembly: sourceAssembly, TargetAssembly: targetAssembly,
 		OutputClass: report.OutputClassVariantVCF,
 		InputKind:   plan.Inspection.Kind, Mode: cfg.Mode,
 		TargetProfile: string(prof),
@@ -356,6 +378,7 @@ func (c *NativeConverter) Convert(ctx context.Context, cfg model.JobConfig, prog
 
 	result := &model.Result{
 		InputKind: plan.Inspection.Kind, Mode: cfg.Mode,
+		Direction:     cfg.Direction,
 		TargetProfile: string(prof),
 		InputRecords:  inputRecords, LiftoverInputVariants: liftoverInput,
 		LiftedVariants: lifted, RejectedVariants: rejected,

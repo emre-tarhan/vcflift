@@ -3,7 +3,7 @@
 **Canonical repository:** `https://github.com/emre-tarhan/vcflift`  
 **Go module:** `github.com/emre-tarhan/vcflift`
 
-VCF Lift is a local desktop + CLI application for **allele-aware hg38 → UCSC hg19 conversion** of VCF files. Supported single-sample gVCF inputs are also accepted: variants are extracted (or genotyped on hg38 first) and then lifted. Every output is an **hg19 variant VCF — never an hg19 gVCF**; joint genotyping must happen on hg38, before liftover.
+VCF Lift is a local desktop + CLI application for **allele-aware conversion between hg38 and hg19/GRCh37** in either direction: forward hg38 → UCSC hg19 (the validated default) and reverse hg19/GRCh37 → hg38. Supported single-sample gVCF inputs convert to variant VCFs: every output is a **variant VCF — never a gVCF**; joint genotyping happens on the source assembly, before liftover.
 
 > **Status:** `v1.0.0`. All three conversion paths have passed real-data release gates: DeepVariant `<*>` gVCF (50.6M-record run, bit-for-bit reproduction), ordinary VCF (GIAB HG002 v4.2.1 with 98.85% independent GRCh37 cross-check concordance — chr names reconciled, left-aligned normalization, GIAB chr1–22 benchmark, MT excluded) and GATK `<NON_REF>` gVCF (pinned GenotypeGVCFs runtime). See `docs/VALIDATION.md`.
 
@@ -192,6 +192,21 @@ The liftover always targets UCSC hg19; the output naming is selectable (CLI `--t
 - `hs37d5`: GRCh37 primary naming plus an explicit header note that decoy contigs are not produced.
 
 `--grch37-fasta PATH` optionally verifies every output REF base against a user-supplied faidx-indexed GRCh37 FASTA (pure comparison, no normalization). See [`docs/TARGET_PROFILES.md`](docs/TARGET_PROFILES.md).
+
+## Reverse conversion (hg19 → hg38)
+
+An input detected as hg19 or GRCh37 converts in the opposite direction automatically — same engine, same REF validation on both sides, same reject auditing:
+
+```bash
+vcflift-cli convert --accept-ucsc-license old.hg19.vcf.gz   # → old.hg38.vcf.gz
+```
+
+- UCSC hg19 (`chr`-prefixed) and GRCh37/b37 primary naming (`1`–`22`, `X`, `Y`, `MT`) are both accepted; GRCh names are normalized to UCSC before liftover.
+- First reverse use downloads the UCSC hg19→hg38 chain (same UCSC license terms) plus hg19 chromosome aliases.
+- DeepVariant-style gVCFs are supported through candidate extraction like forward. GATK-style hg19 gVCFs are rejected with guidance: run GenotypeGVCFs against your own hg19 reference first, then convert the resulting VCF (the managed runtime is hg38-only).
+- Target naming profiles apply to the forward direction only.
+
+Reverse passed its own real-data gate: the GIAB HG002 GRCh37 v4.2.1 benchmark (4.03M records) converts with 222 rejects, zero REF mismatches on both sides, and **98.74% exact concordance** with the official GRCh38 benchmark after left-aligned normalization (`docs/VALIDATION.md`, gate 5).
 
 ## Rejects are auditable
 

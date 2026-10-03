@@ -7,7 +7,7 @@ import (
 	"github.com/emre-tarhan/vcflift/internal/model"
 )
 
-func DefaultOutputPath(input string, mode model.ConversionMode) string {
+func DefaultOutputPath(input string, mode model.ConversionMode, direction model.Direction) string {
 	dir := filepath.Dir(input)
 	base := filepath.Base(input)
 	lower := strings.ToLower(base)
@@ -27,8 +27,12 @@ func DefaultOutputPath(input string, mode model.ConversionMode) string {
 		}
 	}
 
-	if mode == model.ModeGVCFPreserveExperimental {
-		return filepath.Join(dir, stem+".hg19.g.vcf.gz")
+	target := "hg19"
+	if direction == model.DirectionReverse {
+		target = "hg38"
 	}
-	return filepath.Join(dir, stem+".hg19.vcf.gz")
+	if mode == model.ModeGVCFPreserveExperimental {
+		return filepath.Join(dir, stem+"."+target+".g.vcf.gz")
+	}
+	return filepath.Join(dir, stem+"."+target+".vcf.gz")
 }

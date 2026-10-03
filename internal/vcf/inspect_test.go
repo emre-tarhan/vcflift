@@ -94,15 +94,19 @@ func TestDefaultOutputPath(t *testing.T) {
 	cases := []struct {
 		in   string
 		mode model.ConversionMode
+		dir  model.Direction
 		want string
 	}{
-		{"sample.vcf.gz", model.ModeVariantVCF, "sample.hg19.vcf.gz"},
-		{"sample.g.vcf.gz", model.ModeGVCFCalledVariants, "sample.hg19.vcf.gz"},
-		{"sample.gvcf.vcf.gz", model.ModeGVCFPreserveExperimental, "sample.hg19.g.vcf.gz"},
+		{"sample.vcf.gz", model.ModeVariantVCF, model.DirectionForward, "sample.hg19.vcf.gz"},
+		{"sample.g.vcf.gz", model.ModeGVCFCalledVariants, model.DirectionForward, "sample.hg19.vcf.gz"},
+		{"sample.gvcf.vcf.gz", model.ModeGVCFPreserveExperimental, model.DirectionForward, "sample.hg19.g.vcf.gz"},
+		{"sample.vcf.gz", model.ModeVariantVCF, model.DirectionReverse, "sample.hg38.vcf.gz"},
+		{"sample.g.vcf.gz", model.ModeGVCFCalledVariants, model.DirectionReverse, "sample.hg38.vcf.gz"},
+		{"sample.gvcf.vcf.gz", model.ModeGVCFPreserveExperimental, model.DirectionReverse, "sample.hg38.g.vcf.gz"},
 	}
 	for _, tc := range cases {
-		if got := filepath.Base(DefaultOutputPath(tc.in, tc.mode)); got != tc.want {
-			t.Fatalf("DefaultOutputPath(%q)=%q want %q", tc.in, got, tc.want)
+		if got := filepath.Base(DefaultOutputPath(tc.in, tc.mode, tc.dir)); got != tc.want {
+			t.Fatalf("DefaultOutputPath(%q,%q)=%q want %q", tc.in, tc.dir, got, tc.want)
 		}
 	}
 }
@@ -115,6 +119,22 @@ func TestInspectPartialChr22HG38(t *testing.T) {
 	}
 	if got.Assembly != model.AssemblyHG38 {
 		t.Fatalf("assembly=%s", got.Assembly)
+	}
+}
+
+// hs37d5/GRCh37 headers carry the rCRS MT (16569), which collides with the
+// hg38 MT length; the majority vote must still land on hg19.
+func TestInspectHS37D5StyleInfersHG19(t *testing.T) {
+	path := writeGzip(t, "##fileformat=VCFv4.2\n##contig=<ID=1,length=249250621,assembly=human_hs37d5.fasta>\n##contig=<ID=X,length=155270560,assembly=human_hs37d5.fasta>\n##contig=<ID=MT,length=16569,assembly=human_hs37d5.fasta>\n#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n1\t100\t.\tA\tG\t50\tPASS\t.\n")
+	got, err := Inspect(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Assembly != model.AssemblyHG19 {
+		t.Fatalf("assembly=%s", got.Assembly)
+	}
+	if got.ContigStyle != model.ContigStyleGRCh {
+		t.Fatalf("contig style=%s", got.ContigStyle)
 	}
 }
 

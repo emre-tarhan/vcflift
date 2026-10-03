@@ -10,7 +10,7 @@ import (
 func tc() Toolchain {
 	return Toolchain{
 		BCFTools: "bcftools", Java: "java", GATKJar: "gatk.jar",
-		HG38FASTA: "hg38.fa", HG19FASTA: "hg19.fa", Chain38To19: "38to19.chain.gz", SourceRenameMap: "rename.tsv",
+		HG38FASTA: "hg38.fa", HG19FASTA: "hg19.fa", Chain38To19: "38to19.chain.gz", Chain19To38: "19to38.chain.gz", SourceRenameMap: "rename.tsv",
 	}
 }
 
@@ -118,5 +118,63 @@ func TestExperimentalGVCFBlockedUntilPreprocessorExists(t *testing.T) {
 	_, err := BuildPipeline(tc(), model.JobConfig{InputPath: "in.g.vcf.gz", Mode: model.ModeGVCFPreserveExperimental}, "reject.vcf.gz", "out.tmp.vcf.gz")
 	if err == nil {
 		t.Fatal("expected experimental mode to be blocked")
+	}
+}
+
+func TestReverseVCFPipeline(t *testing.T) {
+	p, err := BuildPipeline(tc(), model.JobConfig{InputPath: "old.vcf.gz", Mode: model.ModeVariantVCF, Direction: model.DirectionReverse}, "reject.vcf.gz", "out.tmp.vcf.gz")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(p.Steps) != 5 {
+		t.Fatalf("steps=%d: %#v", len(p.Steps), p.Steps)
+	}
+	if p.Steps[0].Name != "validate source hg19 reference alleles" {
+		t.Fatalf("first=%s", p.Steps[0].Name)
+	}
+	if !slices.Contains(p.Steps[0].Args, "hg19.fa") || slices.Contains(p.Steps[0].Args, "hg38.fa") {
+		t.Fatalf("source validation must use hg19: %v", p.Steps[0].Args)
+	}
+	lift := p.Steps[1].Args
+	for i, want := range []string{"-s", "hg19.fa", "-f", "hg38.fa", "-c", "19to38.chain.gz"} {
+		if !slices.Contains(lift, want) {
+			t.Fatalf("liftover missing %q in %v", want, lift)
+		}
+		_ = i
+	}
+	if p.Steps[2].Name != "validate target hg38 reference alleles" {
+		t.Fatalf("third=%s", p.Steps[2].Name)
+	}
+	if !slices.Contains(p.Steps[2].Args, "hg38.fa") {
+		t.Fatalf("target validation must use hg38: %v", p.Steps[2].Args)
+	}
+}
+
+func TestReversePipelineRequiresReverseChain(t *testing.T) {
+	toolchain := tc()
+	toolchain.Chain19To38 = ""
+	_, err := BuildPipeline(toolchain, model.JobConfig{InputPath: "old.vcf.gz", Mode: model.ModeVariantVCF, Direction: model.DirectionReverse}, "reject.vcf.gz", "out.tmp.vcf.gz")
+	if err == nil {
+		t.Fatal("reverse pipeline without the hg19-to-hg38 chain should fail")
+	}
+}
+
+func TestReverseGenotypeModeBlocked(t *testing.T) {
+	_, err := BuildPipeline(tc(), model.JobConfig{InputPath: "old.g.vcf.gz", Mode: model.ModeGVCFGenotypeThenLift, Direction: model.DirectionReverse}, "reject.vcf.gz", "out.tmp.vcf.gz")
+	if err == nil {
+		t.Fatal("GATK genotyping is hg38-only and must be blocked in reverse")
+	}
+}
+
+func TestReverseRenameUsesSourceMap(t *testing.T) {
+	p, err := BuildPipeline(tc(), model.JobConfig{InputPath: "b37.vcf.gz", Mode: model.ModeVariantVCF, Direction: model.DirectionReverse, NeedsSourceRename: true}, "reject.vcf.gz", "out.tmp.vcf.gz")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p.Steps[0].Name != "normalize chromosome names" {
+		t.Fatalf("first=%s", p.Steps[0].Name)
+	}
+	if !slices.Contains(p.Steps[0].Args, "--rename-chrs") || !slices.Contains(p.Steps[0].Args, "rename.tsv") {
+		t.Fatalf("rename args=%v", p.Steps[0].Args)
 	}
 }

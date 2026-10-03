@@ -136,8 +136,18 @@ func Run() {
 		samples.SetText(fmt.Sprintf("%d", len(inspection.Samples)))
 		output.SetText(plan.OutputPath)
 		metadataSection.Show()
+		reverse := plan.Direction == model.DirectionReverse
+		targetBuild := "hg19"
+		if reverse {
+			targetBuild = "hg38"
+			convertBtn.SetText("Convert to hg38")
+			profileSelect.Hide()
+		} else {
+			convertBtn.SetText("Convert to hg19")
+			profileSelect.Show()
+		}
 		if inspection.Kind == model.FileKindGVCF {
-			const gvcfOutputContract = "The output will be an hg19 variant VCF, not an hg19 gVCF — joint genotyping cannot be done on hg19."
+			gvcfOutputContract := "The output will be an " + targetBuild + " variant VCF, not an " + targetBuild + " gVCF — joint genotyping cannot be done on " + targetBuild + "."
 			switch plan.Mode {
 			case model.ModeGVCFCandidateVariants:
 				setStatus("DeepVariant gVCF ready", "Finalized non-reference calls will be kept. "+gvcfOutputContract)
@@ -147,7 +157,11 @@ func Run() {
 				setStatus("gVCF ready", "VCF Lift selected the appropriate source preparation path for this gVCF. "+gvcfOutputContract)
 			}
 		} else {
-			setStatus("VCF ready", "REF alleles will be checked against hg38 before conversion and against hg19 after conversion.")
+			if reverse {
+				setStatus("VCF ready", "REF alleles will be checked against hg19 before conversion and against hg38 after conversion.")
+			} else {
+				setStatus("VCF ready", "REF alleles will be checked against hg38 before conversion and against hg19 after conversion.")
+			}
 		}
 		convertBtn.Enable()
 	}
@@ -173,7 +187,7 @@ func Run() {
 	updateProgress := func(e model.ProgressEvent) {
 		workflow.Update(e)
 		if e.Stage == model.StageComplete {
-			setStatus("Conversion complete", "The hg19 VCF, index and QC report are ready.")
+			setStatus("Conversion complete", "The converted VCF, index and QC report are ready.")
 			return
 		}
 		setStatus(conversionPhaseTitle(e.Stage), conversionPhaseBody(e.Stage))
@@ -235,7 +249,7 @@ func Run() {
 		}, w).Show()
 	}
 
-	inputSection := section("1", "Input", "VCF or gVCF · hg38", container.NewBorder(nil, nil, nil, browse, fileName))
+	inputSection := section("1", "Input", "VCF or gVCF · hg38 or hg19", container.NewBorder(nil, nil, nil, browse, fileName))
 	metadataGrid := container.NewGridWithColumns(5,
 		stat("Format", kind), stat("Assembly", assembly), stat("Contigs", contigs), stat("Index", index), stat("Samples", samples),
 	)
@@ -251,7 +265,7 @@ func Run() {
 	convertContent := container.NewVScroll(container.New(
 		layout.NewCustomPaddedLayout(18, 20, 22, 22),
 		container.NewVBox(
-			sectionIntro("Convert genome build", "Local, allele-aware conversion from hg38 to hg19. Drop a file anywhere in this window or choose it below."),
+			sectionIntro("Convert genome build", "Local, allele-aware conversion between hg38 and hg19 builds in either direction. Drop a file anywhere in this window or choose it below."),
 			spacer(12),
 			trustStrip(),
 			spacer(12),

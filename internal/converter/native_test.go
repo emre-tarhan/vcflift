@@ -184,6 +184,135 @@ func readGzipText(t *testing.T, path string) string {
 	return string(b)
 }
 
+func TestNativeConverterReverseHG19ToHG38(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("fake bcftools fixture is a POSIX shell script")
+	}
+	d := t.TempDir()
+	fake := filepath.Join(d, "bcftools")
+	script := `#!/bin/sh
+if [ "$1" = "--version" ]; then echo "bcftools 1.24"; exit 0; fi
+if [ "$1" = "plugin" ] && [ "$2" = "-l" ]; then echo "liftover"; exit 0; fi
+if [ "$1" = "+liftover" ] && [ "$2" = "-h" ]; then echo "--write-src --write-reject --lift-end"; exit 0; fi
+cmd="$1"
+shift
+case "$cmd" in
+  index)
+    last=""
+    for a in "$@"; do last="$a"; done
+    : > "$last.tbi"
+    exit 0
+    ;;
+  sort)
+    out=""
+    prev=""
+    for a in "$@"; do
+      if [ "$prev" = "-o" ]; then out="$a"; fi
+      prev="$a"
+    done
+    gzip -c > "$out"
+    exit 0
+    ;;
+  +liftover)
+    reject=""
+    prev=""
+    for a in "$@"; do
+      if [ "$prev" = "--reject" ]; then reject="$a"; fi
+      prev="$a"
+    done
+    if [ -n "$reject" ]; then printf '##fileformat=VCFv4.2\n#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n' | gzip -c > "$reject"; fi
+    cat
+    exit 0
+    ;;
+  annotate|view|norm)
+    infile=""
+    for a in "$@"; do
+      case "$a" in
+        *.vcf|*.vcf.gz) if [ -f "$a" ]; then infile="$a"; fi ;;
+      esac
+    done
+    if [ -n "$infile" ]; then cat "$infile"; else cat; fi
+    exit 0
+    ;;
+esac
+echo "unsupported fake bcftools command: $cmd" >&2
+exit 9
+`
+	if err := os.WriteFile(fake, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	fastaGZ := gzipBytes(t, ">chr1\nACGTACGT\n")
+	chain := []byte("chain fixture\n")
+	aliases := []byte("chr1\t1\tNC_000001.10\n")
+	files := map[string][]byte{
+		"/hg38.fa.gz": fastaGZ, "/hg19.fa.gz": fastaGZ, "/chain.gz": chain, "/aliases.txt": aliases,
+		"/chain19to38.gz": chain, "/hg19aliases.txt": aliases,
+	}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		b, ok := files[r.URL.Path]
+		if !ok {
+			http.NotFound(w, r)
+			return
+		}
+		_, _ = w.Write(b)
+	}))
+	defer srv.Close()
+
+	res := func(id, name string, payload []byte, transform resources.Transform, prepared string) resources.Resource {
+		h := md5.Sum(payload)
+		return resources.Resource{ID: id, Name: id, URL: srv.URL + name, Filename: filepath.Base(name), MD5: hex.EncodeToString(h[:]), Transform: transform, PreparedFilename: prepared}
+	}
+	manifest := resources.Manifest{Version: 1, Resources: []resources.Resource{
+		res("hg38_fasta", "/hg38.fa.gz", fastaGZ, resources.TransformGzipFASTA, "hg38.fa"),
+		res("hg19_fasta", "/hg19.fa.gz", fastaGZ, resources.TransformGzipFASTA, "hg19.fa"),
+		res("hg38_to_hg19_chain", "/chain.gz", chain, resources.TransformNone, ""),
+		res("hg19_to_hg38_chain", "/chain19to38.gz", chain, resources.TransformNone, ""),
+		res("hg38_aliases", "/aliases.txt", aliases, resources.TransformNone, ""),
+		res("hg19_aliases", "/hg19aliases.txt", aliases, resources.TransformNone, ""),
+	}}
+
+	input := filepath.Join(d, "old.vcf")
+	vcfText := "##fileformat=VCFv4.2\n##contig=<ID=chr1,length=249250621>\n#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\nchr1\t2\t.\tC\tT\t.\tPASS\t.\n"
+	if err := os.WriteFile(input, []byte(vcfText), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	output := filepath.Join(d, "old.hg38.vcf.gz")
+
+	c := NewNative(filepath.Join(d, "cache"))
+	c.Manifest = manifest
+	c.Installation = engine.Installation{BCFTools: fake}
+	result, err := c.Convert(context.Background(), model.JobConfig{InputPath: input, OutputPath: output}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Direction != model.DirectionReverse {
+		t.Fatalf("direction=%s", result.Direction)
+	}
+	if result.LiftedVariants != 1 {
+		t.Fatalf("lifted=%d", result.LiftedVariants)
+	}
+	for _, p := range []string{output, output + ".tbi", output + ".report.json"} {
+		if _, err := os.Stat(p); err != nil {
+			t.Fatalf("missing %s: %v", p, err)
+		}
+	}
+	var doc struct {
+		SourceAssembly string `json:"source_assembly"`
+		TargetAssembly string `json:"target_assembly"`
+	}
+	reportBytes, err := os.ReadFile(output + ".report.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(reportBytes, &doc); err != nil {
+		t.Fatal(err)
+	}
+	if doc.SourceAssembly != "hg19" || doc.TargetAssembly != "hg38" {
+		t.Fatalf("assemblies=%s->%s", doc.SourceAssembly, doc.TargetAssembly)
+	}
+}
+
 func TestNativeConverterEndToEndWithFakeBCFTools(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("fake bcftools fixture is a POSIX shell script")

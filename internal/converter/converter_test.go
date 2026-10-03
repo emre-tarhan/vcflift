@@ -60,3 +60,72 @@ func TestDeepVariantGVCFDefaultsToCalledVariantExtraction(t *testing.T) {
 		t.Fatalf("mode=%s", plan.Mode)
 	}
 }
+
+func TestHG19VCFPlansReverse(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "old.vcf.gz")
+	f, err := os.Create(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	gz := gzip.NewWriter(f)
+	_, _ = gz.Write([]byte("##fileformat=VCFv4.2\n##contig=<ID=chr1,length=249250621>\n#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\nchr1\t10001\t.\tA\tG\t50\tPASS\t.\n"))
+	_ = gz.Close()
+	_ = f.Close()
+
+	plan, err := InspectAndPlan(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plan.Direction != model.DirectionReverse {
+		t.Fatalf("direction=%s", plan.Direction)
+	}
+	if plan.Mode != model.ModeVariantVCF {
+		t.Fatalf("mode=%s", plan.Mode)
+	}
+	if filepath.Base(plan.OutputPath) != "old.hg38.vcf.gz" {
+		t.Fatalf("output=%s", plan.OutputPath)
+	}
+}
+
+func TestGRCh37NamedHG19VCFPlansReverse(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "b37.vcf.gz")
+	f, err := os.Create(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	gz := gzip.NewWriter(f)
+	_, _ = gz.Write([]byte("##fileformat=VCFv4.2\n##contig=<ID=1,length=249250621>\n#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n1\t10001\t.\tA\tG\t50\tPASS\t.\n"))
+	_ = gz.Close()
+	_ = f.Close()
+
+	plan, err := InspectAndPlan(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plan.Direction != model.DirectionReverse {
+		t.Fatalf("direction=%s", plan.Direction)
+	}
+	if plan.Inspection.ContigStyle != model.ContigStyleGRCh {
+		t.Fatalf("contig style=%s", plan.Inspection.ContigStyle)
+	}
+}
+
+func TestGATKGVCFOnHG19Rejected(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "old.g.vcf.gz")
+	f, err := os.Create(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	gz := gzip.NewWriter(f)
+	_, _ = gz.Write([]byte("##fileformat=VCFv4.2\n##contig=<ID=chr1,length=249250621>\n##ALT=<ID=NON_REF,Description=\"any alt\">\n##INFO=<ID=END,Number=1,Type=Integer,Description=\"end\">\n#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tS\nchr1\t1\t.\tA\t<NON_REF>\t.\t.\tEND=10\tGT:PL\t0/0:0,90,900\n"))
+	_ = gz.Close()
+	_ = f.Close()
+
+	plan, err := InspectAndPlan(p)
+	if err == nil {
+		t.Fatal("GATK-style gVCF on hg19 should be rejected with guidance")
+	}
+	if plan.Direction != model.DirectionReverse {
+		t.Fatalf("direction=%s", plan.Direction)
+	}
+}

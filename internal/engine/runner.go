@@ -111,6 +111,10 @@ func mergeEnv(base []string, overrides map[string]string) []string {
 
 func stageForStep(name string) model.Stage {
 	switch {
+	case strings.HasPrefix(name, "validate source"):
+		return model.StageSourceValidation
+	case strings.HasPrefix(name, "validate target"):
+		return model.StageTargetValidation
 	case strings.Contains(name, "genotype"):
 		return model.StageGenotyping
 	case strings.Contains(name, "gVCF"):

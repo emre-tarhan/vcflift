@@ -219,10 +219,13 @@ func inferAssembly(lengths map[string]int64, headerReference string) model.Assem
 			match19++
 		}
 	}
-	if match38 > 0 && match19 == 0 {
+	// Majority vote across primary contigs. A GRCh37/hs37d5 header can match
+	// one hg38 length (MT is the rCRS 16569 in both hg38 and hs37d5), but its
+	// 1-22/X/Y lengths only match hg19; the converse holds for hg38 inputs.
+	if match38 > match19 {
 		return model.AssemblyHG38
 	}
-	if match19 > 0 && match38 == 0 {
+	if match19 > match38 {
 		return model.AssemblyHG19
 	}
 

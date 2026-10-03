@@ -47,6 +47,13 @@ const (
 	AssemblyHG19    Assembly = "hg19"
 )
 
+type Direction string
+
+const (
+	DirectionForward Direction = "hg38_to_hg19"
+	DirectionReverse Direction = "hg19_to_hg38"
+)
+
 type Inspection struct {
 	Path               string
 	Kind               FileKind
@@ -69,6 +76,7 @@ type Inspection struct {
 type Plan struct {
 	Inspection   Inspection
 	Mode         ConversionMode
+	Direction    Direction
 	OutputPath   string
 	Warnings     []string
 	Experimental bool
@@ -104,8 +112,9 @@ type JobConfig struct {
 	InputPath         string
 	OutputPath        string
 	Mode              ConversionMode
-	TargetProfile     string // profile.TargetProfile value; "" = ucsc-hg19 default
-	GRCh37FASTA       string // optional second REF check for GRCh37 naming profiles
+	Direction         Direction // derived from inspection; forward is the default
+	TargetProfile     string    // profile.TargetProfile value; "" = ucsc-hg19 default
+	GRCh37FASTA       string    // optional second REF check for GRCh37 naming profiles
 	Threads           int
 	KeepRejected      bool
 	PreserveSource    bool
@@ -117,7 +126,8 @@ type JobConfig struct {
 type Result struct {
 	InputKind                   FileKind
 	Mode                        ConversionMode
-	TargetProfile               string `json:",omitempty"`
+	Direction                   Direction `json:",omitempty"`
+	TargetProfile               string    `json:",omitempty"`
 	InputRecords                int64
 	InputVariants               int64  `json:",omitempty"` // retained for compatibility; ordinary VCF only
 	SourceNonRefCalls           int64  `json:",omitempty"`
