@@ -18,7 +18,7 @@
 - [x] clean WSL2 → Windows GUI cross-build with verified Windows engine artifact.
 - [x] clean native Windows CI build.
 - [ ] final Windows icon/version metadata/code signing decision.
-- [ ] publish SHA256SUMS and third-party notices.
+- [x] SHA256SUMS published by the release workflow; third-party notices live in `docs/THIRD_PARTY_RUNTIME.md` and the engine bundle `licenses/` directory.
 
 ## First-use / cache UX
 
