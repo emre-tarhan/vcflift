@@ -14,6 +14,7 @@ import (
 	"runtime"
 	"strings"
 
+	"github.com/emre-tarhan/vcflift/internal/cachelock"
 	"github.com/emre-tarhan/vcflift/internal/engine"
 )
 
@@ -91,6 +92,17 @@ func (m *Manager) installFor(platform string) (engine.Installation, Manifest, er
 	}
 
 	dest := filepath.Join(m.Root, sanitizeSegment(manifest.EngineVersion), platform)
+	if ok, err := validateInstalled(dest, manifest); err == nil && ok {
+		return installationFor(dest, manifest), manifest, nil
+	}
+
+	release, err := cachelock.Acquire(m.Root)
+	if err != nil {
+		return engine.Installation{}, Manifest{}, err
+	}
+	defer release()
+	// Another process may have finished an install between the check above and
+	// taking the lock; prefer reusing its result over restaging.
 	if ok, err := validateInstalled(dest, manifest); err == nil && ok {
 		return installationFor(dest, manifest), manifest, nil
 	}

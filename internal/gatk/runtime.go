@@ -20,6 +20,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/emre-tarhan/vcflift/internal/cachelock"
+
 	"github.com/emre-tarhan/vcflift/internal/model"
 )
 
@@ -124,6 +126,11 @@ func (m *Manager) Prepare(ctx context.Context, progress func(model.ProgressEvent
 	if err := os.MkdirAll(m.Root, 0o755); err != nil {
 		return Installation{}, err
 	}
+	release, err := cachelock.Acquire(m.Root)
+	if err != nil {
+		return Installation{}, err
+	}
+	defer release()
 
 	var progressMu sync.Mutex
 	emit := progress

@@ -6,6 +6,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/emre-tarhan/vcflift/internal/cachelock"
 )
 
 type Status struct {
@@ -66,6 +68,11 @@ func Inspect(root string) (Status, error) {
 // chains, aliases, engine payloads and installed runtimes are preserved.
 func CleanSafe(root string) (CleanupResult, error) {
 	var result CleanupResult
+	release, err := cachelock.Acquire(root)
+	if err != nil {
+		return result, err
+	}
+	defer release()
 	remove := func(path string) error {
 		info, err := os.Stat(path)
 		if os.IsNotExist(err) {
@@ -131,7 +138,29 @@ func ClearAll(root string) error {
 	if clean == "." || clean == string(filepath.Separator) {
 		return fmt.Errorf("refusing to remove unsafe cache root %q", root)
 	}
-	return os.RemoveAll(clean)
+	release, err := cachelock.Acquire(clean)
+	if err != nil {
+		return err
+	}
+	entries, err := os.ReadDir(clean)
+	if err != nil {
+		release()
+		return err
+	}
+	// The lock file itself stays in place until the lock is released; deleting
+	// it early would break exclusive open on Windows.
+	for _, e := range entries {
+		if e.Name() == ".lock" {
+			continue
+		}
+		if err := os.RemoveAll(filepath.Join(clean, e.Name())); err != nil {
+			release()
+			return err
+		}
+	}
+	release()
+	_ = os.Remove(filepath.Join(clean, ".lock"))
+	return nil
 }
 
 func isTemporary(path string) bool {

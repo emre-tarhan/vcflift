@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- Windows: child processes (bcftools, java) no longer open console windows during GUI conversions.
+- Cross-process cache locking: reference preparation, engine installation, GATK runtime preparation and cache cleaning take an exclusive advisory lock and fail fast with a clear message when another VCF Lift process is already working on the same cache.
+
 ## v0.9.0 — first public release (2026-10-03)
 
 VCF Lift converts VCF and gVCF files locally from hg38 to hg19: allele-aware liftover through a pinned native engine, explicit REF validation on both the source and the target build, explicit reject records for unmappable variants and a machine-readable QC report. Nothing leaves the computer.

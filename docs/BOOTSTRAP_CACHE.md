@@ -68,4 +68,4 @@ Downloads write to `.part` paths. On a later attempt, HTTP Range requests resume
 
 ## Multiple application instances
 
-Cross-process download locking is still a v1.0 hardening item. Until that is implemented, users should avoid starting two first-use preparations against the same empty cache simultaneously.
+Cross-process locking: reference preparation, engine installation, GATK runtime preparation and cache cleaning each take an exclusive `.lock` file lock on the target directory (`internal/cachelock`). A second concurrent process fails fast with a clear message instead of racing the first one on a half-written cache.

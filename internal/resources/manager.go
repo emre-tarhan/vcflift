@@ -13,6 +13,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/emre-tarhan/vcflift/internal/cachelock"
 	"github.com/emre-tarhan/vcflift/internal/diskspace"
 	"github.com/emre-tarhan/vcflift/internal/model"
 )
@@ -54,6 +55,11 @@ func (m *Manager) Prepare(ctx context.Context, manifest Manifest, progress func(
 	if err := os.MkdirAll(m.Root, 0o755); err != nil {
 		return Prepared{}, err
 	}
+	release, err := cachelock.Acquire(m.Root)
+	if err != nil {
+		return Prepared{}, err
+	}
+	defer release()
 
 	for _, r := range manifest.Resources {
 		if r.RequiresAcceptance && !m.AcceptRestrictedData && !m.resourceReady(r) {

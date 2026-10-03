@@ -31,7 +31,7 @@
 - [x] GUI Resources workspace with per-resource Download/Prepare states.
 - [x] automatic first-run reference setup dialog when resources are missing.
 - [x] embedded engine shown as read-only/included; development-engine install removed from end-user GUI.
-- [ ] cross-process cache/download locking.
+- [x] cross-process cache/download locking (`internal/cachelock`, fail-fast advisory lock).
 - [ ] retry/backoff hardening for transient network failures.
 - [ ] first-run timing benchmark on representative home connection / SSD.
 
