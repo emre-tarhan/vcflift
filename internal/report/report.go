@@ -58,6 +58,7 @@ type Document struct {
 	OutputClass             string               `json:"output_class"`
 	InputKind               model.FileKind       `json:"input_kind"`
 	Mode                    model.ConversionMode `json:"mode"`
+	TargetProfile           string               `json:"target_profile"`
 	InputRecords            int64                `json:"input_records"`
 	SourceNonRefCalls       int64                `json:"source_nonref_calls,omitempty"`
 	SourceNonRefPASSCalls   int64                `json:"source_nonref_pass_calls,omitempty"`
@@ -67,6 +68,7 @@ type Document struct {
 	LiftoverInputVariants   int64                `json:"liftover_input_variants"`
 	LiftedVariants          int64                `json:"lifted_variants"`
 	RejectedVariants        int64                `json:"rejected_variants"`
+	ProfileRejects          map[string]int64     `json:"profile_rejects,omitempty"`
 	StartedAt               time.Time            `json:"started_at"`
 	CompletedAt             time.Time            `json:"completed_at"`
 	Resources               ResourceInfo         `json:"resources"`

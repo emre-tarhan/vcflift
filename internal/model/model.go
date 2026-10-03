@@ -104,6 +104,8 @@ type JobConfig struct {
 	InputPath         string
 	OutputPath        string
 	Mode              ConversionMode
+	TargetProfile     string // profile.TargetProfile value; "" = ucsc-hg19 default
+	GRCh37FASTA       string // optional second REF check for GRCh37 naming profiles
 	Threads           int
 	KeepRejected      bool
 	PreserveSource    bool
@@ -115,6 +117,7 @@ type JobConfig struct {
 type Result struct {
 	InputKind                   FileKind
 	Mode                        ConversionMode
+	TargetProfile               string `json:",omitempty"`
 	InputRecords                int64
 	InputVariants               int64  `json:",omitempty"` // retained for compatibility; ordinary VCF only
 	SourceNonRefCalls           int64  `json:",omitempty"`
@@ -124,12 +127,14 @@ type Result struct {
 	LiftoverInputVariants       int64
 	LiftedVariants              int64
 	RejectedVariants            int64
+	ProfileRejects              map[string]int64 `json:",omitempty"`
 	OutputStarAlleleRecords     int64
 	OutputNonRefAlleleRecords   int64
 	CandidateConservationPassed *bool `json:",omitempty"`
 	OutputPath                  string
 	IndexPath                   string
 	RejectPath                  string
+	ProfileRejectPath           string `json:",omitempty"`
 	ReportPath                  string
 	StartedAt                   time.Time
 	CompletedAt                 time.Time

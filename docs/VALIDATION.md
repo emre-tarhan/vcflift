@@ -82,6 +82,8 @@ Results recorded through v1.0.0 on the reference WSL2 machine (engine: embedded 
 
 3. **GATK gVCF, `gatk-test-data` HG00187 reblocked exome gVCF (hg38, GATK-produced)** — 2,977,065 gVCF records; the pinned runtime (Temurin JRE 17.0.20.1 + GATK 4.7.0.0) was downloaded, installed and executed in the same run; GenotypeGVCFs then liftover produced 71,370 variants with 479 rejects (0.67%), source/target REF validation, TBI and placeholder checks passing (2m24s including runtime download).
 
+4. **Target naming profile gate, GIAB HG002 v4.2.1 GRCh38 → `grch37-primary` (post-v1.0.0)** — same input as gate 2 (4,048,342 records): 4,043,025 lifted into GRCh37 primary naming; liftover rejects identical to the ucsc-hg19 baseline (4,975); 342 records that lifted to non-primary contigs were dropped into the `non_primary_contig` profile bucket (chrM is absent from this 1–22 benchmark). The output header carries the GRCh37 primary dictionary (25 contigs, MT=rCRS 16,569) and `##vcflift_target_profile=grch37-primary`. Cross-check: after left-aligned normalization against GRCh37 primary sequence with contig names reconciled, the profiled output matches **3,997,316 of the official GRCh37 v4.2.1 benchmark's 4,033,796 normalized records (99.10%)** exactly; 98.87% of the profiled output is covered by the benchmark. Independent sequence-identity evidence: `bcftools norm` reported **zero REF mismatches** for both the profiled output and the official benchmark against a GRCh37-named copy of the hg19 primary sequence (4.04M + 4.03M records), confirming GRCh37 primary ≡ UCSC hg19 primary sequence for 1–22/X/Y.
+
 ## Engine validation
 
 Every native bundle is self-describing. Build CI must prove that:

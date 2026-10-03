@@ -6,12 +6,14 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"time"
 
 	"github.com/emre-tarhan/vcflift/internal/engine"
 	"github.com/emre-tarhan/vcflift/internal/enginebundle"
 	"github.com/emre-tarhan/vcflift/internal/gatk"
 	"github.com/emre-tarhan/vcflift/internal/model"
+	"github.com/emre-tarhan/vcflift/internal/profile"
 	"github.com/emre-tarhan/vcflift/internal/report"
 	"github.com/emre-tarhan/vcflift/internal/resources"
 	"github.com/emre-tarhan/vcflift/internal/vcf"
@@ -57,6 +59,19 @@ func (c *NativeConverter) Convert(ctx context.Context, cfg model.JobConfig, prog
 	}
 	if !modeCompatible(plan.Inspection.Kind, cfg.Mode) {
 		return nil, fmt.Errorf("requested mode %q is incompatible with detected input %q", cfg.Mode, plan.Inspection.Kind)
+	}
+	prof, err := profile.Parse(cfg.TargetProfile)
+	if err != nil {
+		return nil, err
+	}
+	cfg.TargetProfile = string(prof)
+	if cfg.GRCh37FASTA != "" {
+		if !prof.RenamesToGRCh37() {
+			return nil, fmt.Errorf("grch37 FASTA second REF check requires the grch37-primary or hs37d5 target profile")
+		}
+		if _, statErr := os.Stat(cfg.GRCh37FASTA); statErr != nil {
+			return nil, fmt.Errorf("grch37 FASTA: %w", statErr)
+		}
 	}
 	cfg.NeedsSourceRename = plan.Inspection.ContigStyle == model.ContigStyleGRCh
 
@@ -142,7 +157,7 @@ func (c *NativeConverter) Convert(ctx context.Context, cfg model.JobConfig, prog
 		_ = os.Remove(p)
 	}
 	if cfg.Overwrite {
-		for _, p := range []string{cfg.OutputPath, cfg.OutputPath + ".tbi", reportPathFor(cfg.OutputPath)} {
+		for _, p := range []string{cfg.OutputPath, cfg.OutputPath + ".tbi", reportPathFor(cfg.OutputPath), profileRejectPathFor(cfg.OutputPath), profileRejectPathFor(cfg.OutputPath) + ".tbi"} {
 			_ = os.Remove(p)
 		}
 	}
@@ -157,9 +172,14 @@ func (c *NativeConverter) Convert(ctx context.Context, cfg model.JobConfig, prog
 	if err != nil {
 		return nil, err
 	}
+	var profileTemps []string
 	cleanupTemps := func() {
 		for _, p := range pipeline.TempFiles {
 			_ = os.Remove(p)
+		}
+		for _, p := range profileTemps {
+			_ = os.Remove(p)
+			_ = os.Remove(p + ".tbi")
 		}
 	}
 	defer cleanupTemps()
@@ -173,6 +193,27 @@ func (c *NativeConverter) Convert(ctx context.Context, cfg model.JobConfig, prog
 	}
 	if _, err := os.Stat(tempOutput + ".tbi"); err != nil {
 		return nil, fmt.Errorf("pipeline completed without tabix index: %w", err)
+	}
+
+	// Target naming profiles run after the validated liftover pipeline: the
+	// lifted UCSC hg19 output is renamed/filtered without touching the core.
+	profileRejectPath := profileRejectPathFor(cfg.OutputPath)
+	var profileStats profile.Stats
+	if prof.RenamesToGRCh37() {
+		if progress != nil {
+			progress(model.ProgressEvent{Stage: model.StageQC, Message: "apply " + string(prof) + " target profile"})
+		}
+		profileStats, err = c.applyProfile(ctx, inst.BCFTools, cfg, prof, tempOutput, profileRejectPath, &profileTemps, progress)
+		if err != nil {
+			_ = os.Remove(tempOutput)
+			_ = os.Remove(tempOutput + ".tbi")
+			cleanupTemps()
+			return nil, err
+		}
+		tempOutput = tempOutput + ".profiled.vcf.gz"
+		if prof == profile.HS37D5 {
+			plan.Warnings = append(plan.Warnings, "hs37d5 naming profile: output uses GRCh37 primary contig naming; hs37d5 decoy contigs are not produced")
+		}
 	}
 
 	var sourceCalls vcf.SourceCallSummary
@@ -224,7 +265,13 @@ func (c *NativeConverter) Convert(ctx context.Context, cfg model.JobConfig, prog
 
 	lifted := outputSummary.Records
 	rejected := rejectSummary.Records
-	liftoverInput := lifted + rejected
+	// Conservation math must describe the liftover itself, so profile-dropped
+	// records count as lifted here.
+	preProfileLifted := lifted
+	if prof.RenamesToGRCh37() {
+		preProfileLifted = profileStats.PreProfileRecords()
+	}
+	liftoverInput := preProfileLifted + rejected
 	var candidateConservation *bool
 	if cfg.Mode == model.ModeGVCFCandidateVariants {
 		ok := sourceCalls.LiftoverCandidates == liftoverInput
@@ -244,8 +291,9 @@ func (c *NativeConverter) Convert(ctx context.Context, cfg model.JobConfig, prog
 		Tool: "VCF Lift", ToolVersion: Version,
 		SourceAssembly: "hg38", TargetAssembly: "hg19",
 		OutputClass: report.OutputClassVariantVCF,
-		InputKind:    plan.Inspection.Kind, Mode: cfg.Mode,
-		InputRecords: inputRecords, LiftoverInputVariants: liftoverInput,
+		InputKind:   plan.Inspection.Kind, Mode: cfg.Mode,
+		TargetProfile: string(prof),
+		InputRecords:  inputRecords, LiftoverInputVariants: liftoverInput,
 		LiftedVariants: lifted, RejectedVariants: rejected,
 		StartedAt: started, CompletedAt: completed,
 		Resources: report.ResourceInfo{
@@ -278,6 +326,9 @@ func (c *NativeConverter) Convert(ctx context.Context, cfg model.JobConfig, prog
 		dropped := inputRecords - liftoverInput
 		doc.GVCFBlocksDropped = &dropped
 	}
+	if pr := profileStats.ProfileRejects(); pr != nil {
+		doc.ProfileRejects = pr
+	}
 	doc.QC = report.QCInfo{
 		SourceRefValidationPassed:   true,
 		TargetRefValidationPassed:   true,
@@ -305,7 +356,8 @@ func (c *NativeConverter) Convert(ctx context.Context, cfg model.JobConfig, prog
 
 	result := &model.Result{
 		InputKind: plan.Inspection.Kind, Mode: cfg.Mode,
-		InputRecords: inputRecords, LiftoverInputVariants: liftoverInput,
+		TargetProfile: string(prof),
+		InputRecords:  inputRecords, LiftoverInputVariants: liftoverInput,
 		LiftedVariants: lifted, RejectedVariants: rejected,
 		OutputStarAlleleRecords: outputSummary.StarAlleleRecords, OutputNonRefAlleleRecords: outputSummary.NonRefAlleleRecords,
 		CandidateConservationPassed: candidateConservation,
@@ -329,6 +381,15 @@ func (c *NativeConverter) Convert(ctx context.Context, cfg model.JobConfig, prog
 	} else {
 		_ = os.Remove(rejectPath)
 		_ = os.Remove(rejectPath + ".tbi")
+	}
+	if profileStats.StaleChrM > 0 || profileStats.NonPrimaryContig > 0 {
+		result.ProfileRejects = profileStats.ProfileRejects()
+		if cfg.KeepRejected {
+			result.ProfileRejectPath = profileRejectPath
+		} else {
+			_ = os.Remove(profileRejectPath)
+			_ = os.Remove(profileRejectPath + ".tbi")
+		}
 	}
 	if progress != nil {
 		progress(model.ProgressEvent{Stage: model.StageComplete, Message: "Conversion complete", Current: lifted, Total: lifted + rejected})
@@ -365,6 +426,83 @@ func finalizePair(temp, final string) error {
 
 func rejectPathFor(output string) string { return output + ".rejected.vcf.gz" }
 func reportPathFor(output string) string { return output + ".report.json" }
+
+func profileRejectPathFor(output string) string { return output + ".profile-rejected.vcf.gz" }
+
+// applyProfile splits the lifted UCSC-hg19 output into the GRCh37-named
+// primary output plus a profile reject bucket, then compresses both through
+// the native engine. It appends its temporary files to temps.
+func (c *NativeConverter) applyProfile(ctx context.Context, bcftoolsPath string, cfg model.JobConfig, prof profile.Profile, liftedOutput, profileRejectPath string, temps *[]string, progress func(model.ProgressEvent)) (profile.Stats, error) {
+	var stats profile.Stats
+	primaryPlain := liftedOutput + ".grch37.primary.vcf"
+	rejectPlain := liftedOutput + ".profile-rejected.vcf"
+	profiled := liftedOutput + ".profiled.vcf.gz"
+	*temps = append(*temps, primaryPlain, rejectPlain, profiled, profiled+".tbi")
+
+	cleanup := func() {
+		for _, p := range []string{primaryPlain, rejectPlain, profiled, profiled + ".tbi", profileRejectPath, profileRejectPath + ".tbi"} {
+			_ = os.Remove(p)
+		}
+	}
+
+	in, closeIn, err := profile.OpenText(liftedOutput)
+	if err != nil {
+		cleanup()
+		return stats, err
+	}
+	pf, err := os.Create(primaryPlain)
+	if err != nil {
+		closeIn()
+		cleanup()
+		return stats, err
+	}
+	rf, err := os.Create(rejectPlain)
+	if err != nil {
+		closeIn()
+		_ = pf.Close()
+		cleanup()
+		return stats, err
+	}
+	stats, err = profile.Split(in, prof, pf, rf)
+	closeIn()
+	_ = pf.Close()
+	_ = rf.Close()
+	if err != nil {
+		cleanup()
+		return stats, fmt.Errorf("apply %s target profile: %w", prof, err)
+	}
+
+	// Optional second REF check against a user-provided GRCh37 FASTA. Done in
+	// Go (faidx comparison) because `bcftools norm -N -c e` skips the REF
+	// check when normalization is disabled, and norm without -N would rewrite
+	// the validated representation.
+	if cfg.GRCh37FASTA != "" {
+		if err := profile.CheckREF(primaryPlain, cfg.GRCh37FASTA); err != nil {
+			cleanup()
+			return stats, err
+		}
+	}
+
+	threadArgs := []string{}
+	if cfg.Threads > 0 {
+		threadArgs = []string{"--threads", strconv.Itoa(cfg.Threads)}
+	}
+	steps := []engine.Step{}
+	viewArgs := []string{"view", "-Oz", "-o", profiled}
+	viewArgs = append(viewArgs, threadArgs...)
+	viewArgs = append(viewArgs, primaryPlain)
+	steps = append(steps, engine.Step{Name: "apply " + string(prof) + " target profile", Executable: bcftoolsPath, Args: viewArgs, PipeToNext: false})
+	steps = append(steps, engine.Step{Name: "index profiled output", Executable: bcftoolsPath, Args: []string{"index", "--tbi", "--force", profiled}, PipeToNext: false})
+	if stats.StaleChrM > 0 || stats.NonPrimaryContig > 0 {
+		steps = append(steps, engine.Step{Name: "write profile reject bucket", Executable: bcftoolsPath, Args: []string{"view", "-Oz", "-o", profileRejectPath, rejectPlain}, PipeToNext: false})
+	}
+	pl := engine.Pipeline{Mode: cfg.Mode, Env: map[string]string{}, Steps: steps, TempFiles: []string{primaryPlain, rejectPlain}}
+	if err := c.Runner.Run(ctx, pl, progress); err != nil {
+		cleanup()
+		return stats, err
+	}
+	return stats, nil
+}
 
 func modeCompatible(kind model.FileKind, mode model.ConversionMode) bool {
 	switch kind {

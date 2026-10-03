@@ -49,6 +49,24 @@ func Run() {
 	output := mutedLabel("Output is chosen automatically next to the input file.")
 	output.Wrapping = fyne.TextWrapBreak
 
+	profileValues := map[string]string{
+		"UCSC hg19 (chr names)":   "ucsc-hg19",
+		"GRCh37 primary (no chr)": "grch37-primary",
+		"hs37d5 (GRCh37 naming)":  "hs37d5",
+	}
+	targetProfile := "ucsc-hg19"
+	profileSelect := widget.NewSelect([]string{
+		"UCSC hg19 (chr names)",
+		"GRCh37 primary (no chr)",
+		"hs37d5 (GRCh37 naming)",
+	}, func(choice string) {
+		targetProfile = profileValues[choice]
+		if targetProfile == "" {
+			targetProfile = "ucsc-hg19"
+		}
+	})
+	profileSelect.SetSelected("UCSC hg19 (chr names)")
+
 	statusTitle := widget.NewLabelWithStyle("Ready for a file", fyne.TextAlignLeading, fyne.TextStyle{Bold: true})
 	statusBody := mutedLabel("Choose an hg38 VCF or supported gVCF. Everything is processed locally on this computer.")
 	statusBody.Wrapping = fyne.TextWrapWord
@@ -172,7 +190,7 @@ func Run() {
 		go func() {
 			native := converter.NewNative(cachePath)
 			native.Resources.AcceptRestrictedData = true
-			cfg := model.JobConfig{InputPath: selectedPath, OutputPath: currentPlan.OutputPath, Mode: currentPlan.Mode, KeepRejected: true}
+			cfg := model.JobConfig{InputPath: selectedPath, OutputPath: currentPlan.OutputPath, Mode: currentPlan.Mode, TargetProfile: targetProfile, KeepRejected: true}
 			result, err := native.Convert(ctx, cfg, func(e model.ProgressEvent) {
 				fyne.Do(func() { updateProgress(e) })
 			})
@@ -223,7 +241,7 @@ func Run() {
 	)
 	metadataSection = section("", "Detected file", "Read-only inspection of the selected file", metadataGrid)
 	metadataSection.Hide()
-	outputSection := section("2", "Output", "BGZF VCF + TBI + QC report", output)
+	outputSection := section("2", "Output", "Naming profile · BGZF VCF + TBI + QC report", container.NewVBox(profileSelect, output))
 	workflowSection := section("3", "Convert", "Per-stage progress · no fake percentages", container.NewVBox(
 		workflowView,
 		container.New(layout.NewCustomPaddedLayout(12, 0, 0, 0), container.NewVBox(statusTitle, statusBody)),

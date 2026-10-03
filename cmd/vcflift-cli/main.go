@@ -102,7 +102,7 @@ func runInspect(args []string) error {
 
 func runConvert(args []string) error {
 	fs := flag.NewFlagSet("convert", flag.ContinueOnError)
-	var output, cache, bcftools, pluginDir, javaPath, gatkJar, gvcfMode string
+	var output, cache, bcftools, pluginDir, javaPath, gatkJar, gvcfMode, targetProfile, grch37FASTA string
 	var threads int
 	var keepRejects, overwrite, acceptUCSC bool
 	fs.StringVar(&output, "output", "", "output .vcf.gz path")
@@ -112,6 +112,8 @@ func runConvert(args []string) error {
 	fs.StringVar(&javaPath, "java", "", "Java executable for GATK gVCF genotyping")
 	fs.StringVar(&gatkJar, "gatk-jar", "", "GATK package jar for GenotypeGVCFs")
 	fs.StringVar(&gvcfMode, "gvcf-mode", "auto", "gVCF mode: auto (recommended), genotype, or candidate")
+	fs.StringVar(&targetProfile, "target-profile", "ucsc-hg19", "target naming profile: ucsc-hg19 (default), grch37-primary, or hs37d5")
+	fs.StringVar(&grch37FASTA, "grch37-fasta", "", "optional GRCh37 FASTA for a second REF check (grch37-primary/hs37d5 profiles only)")
 	fs.IntVar(&threads, "threads", 0, "bcftools worker threads (0 = tool default)")
 	fs.BoolVar(&keepRejects, "keep-rejects", false, "keep rejected variants VCF")
 	fs.BoolVar(&overwrite, "overwrite", false, "replace existing output")
@@ -138,7 +140,7 @@ func runConvert(args []string) error {
 	}
 	c.Resources.AcceptRestrictedData = acceptUCSC
 
-	cfg := model.JobConfig{InputPath: fs.Arg(0), OutputPath: output, Threads: threads, KeepRejected: keepRejects, Overwrite: overwrite}
+	cfg := model.JobConfig{InputPath: fs.Arg(0), OutputPath: output, TargetProfile: targetProfile, GRCh37FASTA: grch37FASTA, Threads: threads, KeepRejected: keepRejects, Overwrite: overwrite}
 	switch gvcfMode {
 	case "", "auto":
 		// InspectAndPlan picks the path for the detected gVCF dialect.

@@ -9,11 +9,13 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 
 	"github.com/emre-tarhan/vcflift/internal/engine"
@@ -21,6 +23,166 @@ import (
 	"github.com/emre-tarhan/vcflift/internal/model"
 	"github.com/emre-tarhan/vcflift/internal/resources"
 )
+
+func TestNativeConverterGRCh37TargetProfile(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("fake bcftools fixture is a POSIX shell script")
+	}
+	d := t.TempDir()
+	fake := filepath.Join(d, "bcftools")
+	script := `#!/bin/sh
+if [ "$1" = "--version" ]; then echo "bcftools 1.24"; exit 0; fi
+if [ "$1" = "plugin" ] && [ "$2" = "-l" ]; then echo "liftover"; exit 0; fi
+if [ "$1" = "+liftover" ] && [ "$2" = "-h" ]; then echo "--write-src --write-reject --lift-end"; exit 0; fi
+cmd="$1"
+shift
+out=""
+infile=""
+prev=""
+for a in "$@"; do
+  if [ "$prev" = "-o" ]; then out="$a"; fi
+  case "$a" in
+    *.vcf|*.vcf.gz) if [ -f "$a" ] && [ "$a" != "$out" ]; then infile="$a"; fi ;;
+  esac
+  prev="$a"
+done
+case "$cmd" in
+  index)
+    last=""
+    for a in "$@"; do last="$a"; done
+    : > "$last.tbi"
+    exit 0
+    ;;
+  sort|view)
+    if [ -n "$out" ]; then
+      if [ -n "$infile" ]; then gzip -c "$infile" > "$out"; else gzip -c > "$out"; fi
+    else
+      if [ -n "$infile" ]; then cat "$infile"; else cat; fi
+    fi
+    exit 0
+    ;;
+  +liftover)
+    cat
+    exit 0
+    ;;
+  norm|annotate)
+    if [ -n "$infile" ]; then cat "$infile"; else cat; fi
+    exit 0
+    ;;
+esac
+echo "unsupported fake bcftools command: $cmd" >&2
+exit 9
+`
+	if err := os.WriteFile(fake, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	fastaGZ := gzipBytes(t, ">chr1\nACGTACGT\n")
+	chain := []byte("chain fixture\n")
+	aliases := []byte("chr1\t1\tNC_000001.11\n")
+	files := map[string][]byte{"/hg38.fa.gz": fastaGZ, "/hg19.fa.gz": fastaGZ, "/chain.gz": chain, "/aliases.txt": aliases}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		b, ok := files[r.URL.Path]
+		if !ok {
+			http.NotFound(w, r)
+			return
+		}
+		_, _ = w.Write(b)
+	}))
+	defer srv.Close()
+
+	res := func(id, name string, payload []byte, transform resources.Transform, prepared string) resources.Resource {
+		h := md5.Sum(payload)
+		return resources.Resource{ID: id, Name: id, URL: srv.URL + name, Filename: filepath.Base(name), MD5: hex.EncodeToString(h[:]), Transform: transform, PreparedFilename: prepared}
+	}
+	manifest := resources.Manifest{Version: 1, Resources: []resources.Resource{
+		res("hg38_fasta", "/hg38.fa.gz", fastaGZ, resources.TransformGzipFASTA, "hg38.fa"),
+		res("hg19_fasta", "/hg19.fa.gz", fastaGZ, resources.TransformGzipFASTA, "hg19.fa"),
+		res("hg38_to_hg19_chain", "/chain.gz", chain, resources.TransformNone, ""),
+		res("hg38_aliases", "/aliases.txt", aliases, resources.TransformNone, ""),
+	}}
+
+	input := filepath.Join(d, "sample.vcf")
+	vcfText := "##fileformat=VCFv4.2\n##contig=<ID=chr1,length=248956422>\n##contig=<ID=chrM,length=16569>\n##contig=<ID=chrUn_gl000220v1,length=161802>\n#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\nchr1\t2\t.\tC\tT\t.\tPASS\t.\nchrM\t5\t.\tT\tC\t.\tPASS\t.\nchrUn_gl000220v1\t9\t.\tG\tA\t.\tPASS\t.\n"
+	if err := os.WriteFile(input, []byte(vcfText), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	output := filepath.Join(d, "sample.hg19.vcf.gz")
+
+	c := NewNative(filepath.Join(d, "cache"))
+	c.Manifest = manifest
+	c.Installation = engine.Installation{BCFTools: fake}
+	result, err := c.Convert(context.Background(), model.JobConfig{
+		InputPath: input, OutputPath: output,
+		TargetProfile: "grch37-primary", KeepRejected: true,
+	}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.TargetProfile != "grch37-primary" {
+		t.Fatalf("target profile=%q", result.TargetProfile)
+	}
+	if result.LiftedVariants != 1 {
+		t.Fatalf("lifted=%d want 1 (chr1 only, post-profile)", result.LiftedVariants)
+	}
+	if result.LiftoverInputVariants != 3 {
+		t.Fatalf("liftover input=%d want 3 (conservation counts pre-profile)", result.LiftoverInputVariants)
+	}
+	if result.ProfileRejects["stale_hg19_chrM"] != 1 || result.ProfileRejects["non_primary_contig"] != 1 {
+		t.Fatalf("profile rejects=%v", result.ProfileRejects)
+	}
+
+	outText := readGzipText(t, output)
+	if !strings.Contains(outText, "##vcflift_target_profile=grch37-primary") || !strings.Contains(outText, "##contig=<ID=1,length=249250621>") {
+		t.Fatalf("profiled output header wrong:\n%s", outText)
+	}
+	if !strings.Contains(outText, "\n1\t2\t") || strings.Contains(outText, "chrM\t") || strings.Contains(outText, "chrUn") {
+		t.Fatalf("profiled output records wrong:\n%s", outText)
+	}
+
+	rejPath := result.ProfileRejectPath
+	if rejPath == "" {
+		t.Fatal("profile reject path missing")
+	}
+	rejText := readGzipText(t, rejPath)
+	if !strings.Contains(rejText, "\nchrM\t5\t.\tT\tC\t.\tstale_hg19_chrM\t") || !strings.Contains(rejText, "\nchrUn_gl000220v1\t9\t.\tG\tA\t.\tnon_primary_contig\t") {
+		t.Fatalf("profile reject bucket wrong:\n%s", rejText)
+	}
+
+	reportBytes, err := os.ReadFile(output + ".report.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var doc struct {
+		TargetProfile  string           `json:"target_profile"`
+		ProfileRejects map[string]int64 `json:"profile_rejects"`
+	}
+	if err := json.Unmarshal(reportBytes, &doc); err != nil {
+		t.Fatal(err)
+	}
+	if doc.TargetProfile != "grch37-primary" || doc.ProfileRejects["stale_hg19_chrM"] != 1 {
+		t.Fatalf("report doc wrong: %+v", doc)
+	}
+}
+
+func readGzipText(t *testing.T, path string) string {
+	t.Helper()
+	f, err := os.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	zr, err := gzip.NewReader(f)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer zr.Close()
+	b, err := io.ReadAll(zr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(b)
+}
 
 func TestNativeConverterEndToEndWithFakeBCFTools(t *testing.T) {
 	if runtime.GOOS == "windows" {

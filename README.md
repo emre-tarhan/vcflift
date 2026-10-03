@@ -183,6 +183,16 @@ The managed runtime is pinned to GATK `4.7.0.0` and Eclipse Temurin JRE `17.0.20
 
 See [`docs/GVCF.md`](docs/GVCF.md).
 
+## Target naming profiles
+
+The liftover always targets UCSC hg19; the output naming is selectable (CLI `--target-profile`, GUI Output section):
+
+- `ucsc-hg19` (default): chr-prefixed UCSC naming, unchanged validated output.
+- `grch37-primary`: primary contigs renamed to GRCh37 naming (`1`–`22`, `X`, `Y`), header dictionary rebuilt from the GRCh37 primary assembly. `chrM` records are rejected with `stale_hg19_chrM` (hg19 chrM is the old NC_001807 sequence; the GRCh37 MT is the rCRS — coordinates cannot be derived by renaming). Records lifted to unplaced/unlocalized/alt contigs are rejected with `non_primary_contig`. Both land in a separate `.profile-rejected.vcf.gz` bucket and are counted in the QC report.
+- `hs37d5`: GRCh37 primary naming plus an explicit header note that decoy contigs are not produced.
+
+`--grch37-fasta PATH` optionally verifies every output REF base against a user-supplied faidx-indexed GRCh37 FASTA (pure comparison, no normalization). See [`docs/TARGET_PROFILES.md`](docs/TARGET_PROFILES.md).
+
 ## Rejects are auditable
 
 Keep the rejected VCF:

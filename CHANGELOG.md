@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Target naming profiles (`--target-profile`, GUI Output section): `ucsc-hg19` default unchanged; `grch37-primary` renames primary contigs to GRCh37 naming with a rebuilt GRCh37 primary header dictionary, rejects chrM records as `stale_hg19_chrM` (hg19 chrM = NC_001807, GRCh37 MT = rCRS; not renamable) and non-primary-contig records as `non_primary_contig`, both into a separate `.profile-rejected.vcf.gz` bucket counted in the QC report (`target_profile`, `profile_rejects`); `hs37d5` adds the explicit "decoy contigs are not produced" header note. Profiles are a post-liftover layer; the validated pipeline is untouched.
+- Optional second REF check: `--grch37-fasta PATH` compares every GRCh37-profiled output REF base against a user-supplied faidx-indexed GRCh37 FASTA in-process (no normalization, no download).
+- `grch37-primary` real-data gate (GIAB HG002 v4.2.1): 4,043,025 lifted, liftover rejects identical to the ucsc-hg19 baseline, 342 non-primary drops; 99.10% exact concordance with the official GRCh37 benchmark after left-aligned normalization (docs/VALIDATION.md gate 4).
 - Output contract is now explicit in three places: the GUI shows a one-sentence contract when a gVCF is selected ("the output will be an hg19 variant VCF, not an hg19 gVCF"); the QC report records `output_class: "variant_vcf"` on every conversion and `gvcf_blocks_dropped` (source gVCF records not carried into the output) for gVCF inputs; README/docs gVCF sections state the contract instead of implying gVCF-to-gVCF conversion.
 - Honesty caveat on the 98.85% cross-check headline in README/CHANGELOG: chr names reconciled, left-aligned normalization, GIAB chr1–22 benchmark, MT excluded (full method in docs/VALIDATION.md).
 
