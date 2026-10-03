@@ -5,7 +5,7 @@
 
 VCF Lift is a local desktop + CLI application for **allele-aware conversion between hg38 and hg19/GRCh37** in either direction: forward hg38 → UCSC hg19 (the validated default) and reverse hg19/GRCh37 → hg38. Supported single-sample gVCF inputs convert to variant VCFs: every output is a **variant VCF — never a gVCF**; joint genotyping happens on the source assembly, before liftover.
 
-> **Status:** `v1.1.0`. Both directions and all conversion paths have passed real-data release gates: ordinary VCF (GIAB HG002 v4.2.1, 98.85% forward cross-check and 98.74% reverse cross-check concordance), DeepVariant `<*>` gVCF (50.6M-record run, bit-for-bit reproduction), GATK `<NON_REF>` gVCF (pinned GenotypeGVCFs runtime) and the `grch37-primary` naming profile (99.10% concordance) — chr names reconciled, left-aligned normalization, GIAB chr1–22 benchmarks, MT excluded. See `docs/VALIDATION.md`.
+> **Status:** `v1.1.1`. The GIAB HG002 v4.2.1 benchmark gates passed in both directions (98.85% forward, 98.74% reverse cross-check concordance after left-aligned normalization; high-confidence benchmark regions, chr1–22, MT excluded), and the `grch37-primary` naming profile gate matched the official GRCh37 benchmark at 99.10%. Separately, a real 50.6M-record DeepVariant cohort gVCF converts with 8.9% of candidates rejected in chain gaps — a production callset, not a high-confidence benchmark; reject rates scale with the input's distance from the chain. The GATK gVCF path is gated on a public GATK-produced exome gVCF. See `docs/VALIDATION.md`.
 
 ## Normal use
 

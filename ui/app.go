@@ -55,7 +55,18 @@ func Run() {
 		"GRCh37 primary (no chr)": "grch37-primary",
 		"hs37d5 (GRCh37 naming)":  "hs37d5",
 	}
+	// Contract text is unconditional: it states what the profile delivers
+	// (and what it never carries) whether or not this input has chrM or
+	// non-primary records.
+	profileCaptions := map[string]string{
+		"ucsc-hg19":      "UCSC hg19 chr naming · chrM kept as hg19-native NC_001807",
+		"grch37-primary": "GRCh37 primary contigs only — no decoys, no EBV. chrM is not carried: hg19 chrM is NC_001807, GRCh37 MT is the rCRS.",
+		"hs37d5":         "GRCh37 primary contigs only — no decoys, no EBV; this is not the 1000 Genomes hs37d5 analysis set. chrM is not carried (NC_001807 vs rCRS).",
+	}
 	targetProfile := "ucsc-hg19"
+	profileCaption := mutedLabel(profileCaptions["ucsc-hg19"])
+	profileCaption.Wrapping = fyne.TextWrapWord
+	var notifyProfileChange func(profile string)
 	profileSelect := widget.NewSelect([]string{
 		"UCSC hg19 (chr names)",
 		"GRCh37 primary (no chr)",
@@ -64,6 +75,9 @@ func Run() {
 		targetProfile = profileValues[choice]
 		if targetProfile == "" {
 			targetProfile = "ucsc-hg19"
+		}
+		if notifyProfileChange != nil {
+			notifyProfileChange(targetProfile)
 		}
 	})
 	profileSelect.SetSelected("UCSC hg19 (chr names)")
@@ -102,6 +116,15 @@ func Run() {
 	setStatus := func(title, body string) {
 		statusTitle.SetText(title)
 		statusBody.SetText(body)
+	}
+
+	// Wired after setStatus/selectedPath exist so the dropdown callback can
+	// surface the profile contract at selection time, not only on completion.
+	notifyProfileChange = func(p string) {
+		profileCaption.SetText(profileCaptions[p])
+		if selectedPath != "" && currentPlan.Direction != model.DirectionReverse {
+			setStatus("Output profile", profileCaptions[p])
+		}
 	}
 
 	// Declared before the inspectors so they can reveal it once a file is
@@ -240,10 +263,22 @@ func Run() {
 					plain = fmt.Sprintf("Of %s input records, %s (%.3f%%) fell into chain gaps and were rejected.",
 						groupDigits(result.InputRecords), groupDigits(result.RejectedVariants), rejectRate)
 				}
+				// Profile drops are counted, not assumed: lines appear only
+				// when records actually fell into a profile bucket.
+				var profileLines string
+				if n := result.ProfileRejects["stale_hg19_chrM"]; n > 0 {
+					profileLines += fmt.Sprintf("\nchrM not carried (NC_001807 vs rCRS): %s records rejected", groupDigits(n))
+				}
+				if n := result.ProfileRejects["non_primary_contig"]; n > 0 {
+					profileLines += fmt.Sprintf("\nNon-primary contigs dropped: %s records", groupDigits(n))
+				}
+				if profileLines != "" {
+					profileLines = "\n" + profileLines + "\n"
+				}
 				setStatus("Conversion complete", fmt.Sprintf("%s variants were written to the %s output. QC and indexing completed successfully.", groupDigits(result.LiftedVariants), targetWord))
 				dialog.ShowInformation("Conversion complete", fmt.Sprintf(
-					"%s\n\nLifted variants: %s (%.3f%%)\nRejected variants: %s (%.3f%%)\n\nOutput\n%s\n\nQC report\n%s",
-					plain, groupDigits(result.LiftedVariants), successRate, groupDigits(result.RejectedVariants), rejectRate, result.OutputPath, result.ReportPath,
+					"%s\n\nLifted variants: %s (%.3f%%)\nRejected variants: %s (%.3f%%)%s\nOutput\n%s\n\nQC report\n%s",
+					plain, groupDigits(result.LiftedVariants), successRate, groupDigits(result.RejectedVariants), rejectRate, profileLines, result.OutputPath, result.ReportPath,
 				), w)
 			})
 		}()
@@ -271,7 +306,7 @@ func Run() {
 	)
 	metadataSection = section("", "Detected file", "Read-only inspection of the selected file", metadataGrid)
 	metadataSection.Hide()
-	outputSection := section("2", "Output", "Naming profile · BGZF VCF + TBI + QC report", container.NewVBox(profileSelect, output))
+	outputSection := section("2", "Output", "Naming profile · BGZF VCF + TBI + QC report", container.NewVBox(profileSelect, profileCaption, output))
 	workflowSection := section("3", "Convert", "Per-stage progress · no fake percentages", container.NewVBox(
 		workflowView,
 		container.New(layout.NewCustomPaddedLayout(12, 0, 0, 0), container.NewVBox(statusTitle, statusBody)),

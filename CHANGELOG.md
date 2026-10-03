@@ -1,5 +1,13 @@
 # Changelog
 
+## v1.1.1 (2026-10-04)
+
+GUI and documentation honesty; no pipeline, engine, chain or reject-default changes.
+
+- Profile contracts are now visible at selection time, unconditionally: the `grch37-primary` and `hs37d5` captions state "GRCh37 primary contigs only — no decoys, no EBV" (hs37d5 adds "not the 1000 Genomes analysis set") and that chrM is not carried (hg19 NC_001807 vs GRCh37 rCRS), whether or not this input has chrM records. The same sentence appears in the status area on selection.
+- The completion dialog lists profile drop counts only when records actually fell into a bucket (chrM stale / non-primary contig).
+- README status no longer merges the GIAB benchmark gates and the DeepVariant cohort gVCF gate into one sentence; the cohort gate now carries its 8.9% reject rate and the "not a high-confidence benchmark" caveat.
+
 ## v1.1.0 (2026-10-03)
 
 Bidirectional conversion with an explicit output contract. The validated hg38→hg19 pipeline is unchanged step-for-step; everything below is additive.
