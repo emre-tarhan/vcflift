@@ -2,6 +2,10 @@
 
 VCF Lift treats gVCF as a first-class input type.
 
+## Output contract
+
+Every gVCF conversion path produces an **hg19 variant VCF**. VCF Lift never emits an hg19 gVCF: reference-confidence territory is either genotyped on hg38 first (Mode A) or dropped from the variant output (Mode B), because reference-confidence likelihoods are relative to the source assembly and joint genotyping on hg19 cannot be reconstructed from lifted blocks. The QC report makes this explicit with `output_class: "variant_vcf"` and, for gVCF inputs, `gvcf_blocks_dropped` — the count of source gVCF records not carried into the output (`input_records - liftover_input_variants`).
+
 ## What gVCF preserves that variant-only VCF does not
 
 In a variant-only VCF, absence of a position does not by itself distinguish confidently homozygous-reference sequence from insufficient coverage, filtering, or a site that was simply not emitted.

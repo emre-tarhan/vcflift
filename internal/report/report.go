@@ -45,11 +45,17 @@ type RejectSummary struct {
 	Contigs map[string]int64 `json:"contigs,omitempty"`
 }
 
+// OutputClassVariantVCF is the deliverable contract for every conversion
+// mode: the output is a variant VCF. gVCF reference-confidence territory is
+// never carried into the output.
+const OutputClassVariantVCF = "variant_vcf"
+
 type Document struct {
 	Tool                    string               `json:"tool"`
 	ToolVersion             string               `json:"tool_version"`
 	SourceAssembly          string               `json:"source_assembly"`
 	TargetAssembly          string               `json:"target_assembly"`
+	OutputClass             string               `json:"output_class"`
 	InputKind               model.FileKind       `json:"input_kind"`
 	Mode                    model.ConversionMode `json:"mode"`
 	InputRecords            int64                `json:"input_records"`
@@ -57,6 +63,7 @@ type Document struct {
 	SourceNonRefPASSCalls   int64                `json:"source_nonref_pass_calls,omitempty"`
 	SourceCandidateVariants int64                `json:"source_candidate_variants,omitempty"`
 	PreprocessingExcluded   *int64               `json:"preprocessing_excluded,omitempty"`
+	GVCFBlocksDropped       *int64               `json:"gvcf_blocks_dropped,omitempty"`
 	LiftoverInputVariants   int64                `json:"liftover_input_variants"`
 	LiftedVariants          int64                `json:"lifted_variants"`
 	RejectedVariants        int64                `json:"rejected_variants"`

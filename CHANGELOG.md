@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- Output contract is now explicit in three places: the GUI shows a one-sentence contract when a gVCF is selected ("the output will be an hg19 variant VCF, not an hg19 gVCF"); the QC report records `output_class: "variant_vcf"` on every conversion and `gvcf_blocks_dropped` (source gVCF records not carried into the output) for gVCF inputs; README/docs gVCF sections state the contract instead of implying gVCF-to-gVCF conversion.
+- Honesty caveat on the 98.85% cross-check headline in README/CHANGELOG: chr names reconciled, left-aligned normalization, GIAB chr1–22 benchmark, MT excluded (full method in docs/VALIDATION.md).
+
 ## v1.0.0 (2026-10-03)
 
 First stable release. All three conversion paths have passed real-data release gates (see docs/VALIDATION.md).
@@ -9,7 +14,7 @@ First stable release. All three conversion paths have passed real-data release g
 - Network hardening: first-use downloads retry transient failures (4 attempts, exponential backoff with jitter) and resume from `.part` state.
 - Windows: real-machine smoke test passed (conversion, hover styling, console-free child processes).
 - Windows known gap: the managed Java/GATK first-use download has been exercised on Linux only; the code path is shared, but a native Windows run is still pending.
-- Real-data gates for v1.0: the v0.9.0 build reproduces the validated DeepVariant gVCF run bit-for-bit; an ordinary-VCF gate on the GIAB HG002 v4.2.1 benchmark passes with 98.85% independent GRCh37 cross-check concordance.
+- Real-data gates for v1.0: the v0.9.0 build reproduces the validated DeepVariant gVCF run bit-for-bit; an ordinary-VCF gate on the GIAB HG002 v4.2.1 benchmark passes with 98.85% independent GRCh37 cross-check concordance (chr names reconciled, left-aligned normalization, GIAB chr1–22 benchmark, MT excluded).
 - Cross-process cache locking: reference preparation, engine installation, GATK runtime preparation and cache cleaning take an exclusive advisory lock and fail fast with a clear message when another VCF Lift process is already working on the same cache.
 
 ## v0.9.0 — first public release (2026-10-03)

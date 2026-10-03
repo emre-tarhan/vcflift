@@ -243,7 +243,8 @@ func (c *NativeConverter) Convert(ctx context.Context, cfg model.JobConfig, prog
 	doc := report.Document{
 		Tool: "VCF Lift", ToolVersion: Version,
 		SourceAssembly: "hg38", TargetAssembly: "hg19",
-		InputKind: plan.Inspection.Kind, Mode: cfg.Mode,
+		OutputClass: report.OutputClassVariantVCF,
+		InputKind:    plan.Inspection.Kind, Mode: cfg.Mode,
 		InputRecords: inputRecords, LiftoverInputVariants: liftoverInput,
 		LiftedVariants: lifted, RejectedVariants: rejected,
 		StartedAt: started, CompletedAt: completed,
@@ -270,6 +271,12 @@ func (c *NativeConverter) Convert(ctx context.Context, cfg model.JobConfig, prog
 			excluded := sourceCalls.NonReferenceCalls - sourceCalls.LiftoverCandidates
 			doc.PreprocessingExcluded = &excluded
 		}
+	}
+	if plan.Inspection.Kind == model.FileKindGVCF {
+		// Contract metric: source gVCF records the variant-VCF output does
+		// not carry (reference-confidence territory).
+		dropped := inputRecords - liftoverInput
+		doc.GVCFBlocksDropped = &dropped
 	}
 	doc.QC = report.QCInfo{
 		SourceRefValidationPassed:   true,

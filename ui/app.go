@@ -119,13 +119,14 @@ func Run() {
 		output.SetText(plan.OutputPath)
 		metadataSection.Show()
 		if inspection.Kind == model.FileKindGVCF {
+			const gvcfOutputContract = "The output will be an hg19 variant VCF, not an hg19 gVCF — joint genotyping cannot be done on hg19."
 			switch plan.Mode {
 			case model.ModeGVCFCandidateVariants:
-				setStatus("DeepVariant gVCF ready", "Finalized non-reference calls will be kept. Reference-confidence blocks and placeholder alleles are excluded from the hg19 variant VCF.")
+				setStatus("DeepVariant gVCF ready", "Finalized non-reference calls will be kept. "+gvcfOutputContract)
 			case model.ModeGVCFGenotypeThenLift:
-				setStatus("GATK gVCF ready", "GenotypeGVCFs will run against hg38 first. The pinned Java and GATK runtime is prepared automatically when needed.")
+				setStatus("GATK gVCF ready", "GenotypeGVCFs will run against hg38 first. The pinned Java and GATK runtime is prepared automatically when needed. "+gvcfOutputContract)
 			default:
-				setStatus("gVCF ready", "VCF Lift selected the appropriate source preparation path for this gVCF.")
+				setStatus("gVCF ready", "VCF Lift selected the appropriate source preparation path for this gVCF. "+gvcfOutputContract)
 			}
 		} else {
 			setStatus("VCF ready", "REF alleles will be checked against hg38 before conversion and against hg19 after conversion.")

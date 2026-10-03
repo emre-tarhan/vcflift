@@ -3,9 +3,9 @@
 **Canonical repository:** `https://github.com/emre-tarhan/vcflift`  
 **Go module:** `github.com/emre-tarhan/vcflift`
 
-VCF Lift is a local desktop + CLI application for **allele-aware hg38 → UCSC hg19 conversion** of VCF and supported single-sample gVCF inputs.
+VCF Lift is a local desktop + CLI application for **allele-aware hg38 → UCSC hg19 conversion** of VCF files. Supported single-sample gVCF inputs are also accepted: variants are extracted (or genotyped on hg38 first) and then lifted. Every output is an **hg19 variant VCF — never an hg19 gVCF**; joint genotyping must happen on hg38, before liftover.
 
-> **Status:** `v1.0.0`. All three conversion paths have passed real-data release gates: DeepVariant `<*>` gVCF (50.6M-record run, bit-for-bit reproduction), ordinary VCF (GIAB HG002 v4.2.1 with 98.85% independent GRCh37 cross-check concordance) and GATK `<NON_REF>` gVCF (pinned GenotypeGVCFs runtime). See `docs/VALIDATION.md`.
+> **Status:** `v1.0.0`. All three conversion paths have passed real-data release gates: DeepVariant `<*>` gVCF (50.6M-record run, bit-for-bit reproduction), ordinary VCF (GIAB HG002 v4.2.1 with 98.85% independent GRCh37 cross-check concordance — chr names reconciled, left-aligned normalization, GIAB chr1–22 benchmark, MT excluded) and GATK `<NON_REF>` gVCF (pinned GenotypeGVCFs runtime). See `docs/VALIDATION.md`.
 
 ## Normal use
 
@@ -140,7 +140,7 @@ hg38 VCF
 
 ### DeepVariant `<*>` gVCF
 
-DeepVariant has finalized genotype calls in the gVCF. VCF Lift therefore does **not** run GATK `GenotypeGVCFs` for this dialect.
+DeepVariant has finalized genotype calls in the gVCF. VCF Lift therefore does **not** run GATK `GenotypeGVCFs` for this dialect. The output is an hg19 variant VCF: finalized variant calls are lifted, while reference-confidence blocks are dropped by design. The QC report counts the dropped source records in `gvcf_blocks_dropped`.
 
 ```text
 DeepVariant hg38 gVCF
@@ -179,7 +179,7 @@ GATK hg38 gVCF
  → hg19 validation / BGZF / TBI / QC
 ```
 
-The managed runtime is pinned to GATK `4.7.0.0` and Eclipse Temurin JRE `17.0.20.1+1`.
+The managed runtime is pinned to GATK `4.7.0.0` and Eclipse Temurin JRE `17.0.20.1+1`. The output is an hg19 variant VCF, not an hg19 gVCF: reference-confidence territory is consumed by GenotypeGVCFs on hg38 and is not carried across liftover (the QC report records `output_class: "variant_vcf"` and `gvcf_blocks_dropped`).
 
 See [`docs/GVCF.md`](docs/GVCF.md).
 

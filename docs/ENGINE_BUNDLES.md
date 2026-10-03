@@ -74,6 +74,8 @@ internal/enginebundle/payload/<goos>-<goarch>/
 
 A subsequent GUI/CLI build embeds that payload using Go `embed`.
 
+The standalone `.zip` is only a build-time input. The resulting executable embeds the verified payload at compile time exactly like an official release, and at runtime both verify the same `manifest.json` SHA-256 entries before extraction. Nothing engine-related is downloaded at run time; `vcflift-cli engine install --bundle` is an optional development/diagnostics route, not a dependency of release binaries.
+
 ## Bundle layout
 
 ```text
