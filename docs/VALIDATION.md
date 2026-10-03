@@ -80,6 +80,8 @@ Results recorded for v0.9.0+ on the reference WSL2 machine (engine: embedded bcf
 1. **DeepVariant gVCF, private cohort sample (`deepvariant_star`)** — 50,574,105 input records, 5,422,963 candidates: 4,942,650 lifted (91.143%), 480,313 rejected (8.857%), exact candidate conservation, source/target REF validation, TBI and placeholder checks all passing. The identical run was repeated with the v0.9.0 release build and reproduced the same counts bit-for-bit (58m11s end-to-end).
 2. **Ordinary VCF, GIAB HG002 v4.2.1 (GRCh38 benchmark)** — 4,048,342 input records, `variant_vcf` mode: 4,043,367 lifted (99.88%), 4,975 rejected (0.12%; UnmappedAnchors 4,929, MismatchAnchors 43, ApartAnchors 3), source/target REF validation and TBI passing (5m17s). Independent cross-check: after left-aligned normalization, the lifted output shares 4,044,418 of 4,091,631 records (**98.85%**) with the official GIAB GRCh37 v4.2.1 benchmark VCF (which itself shares 99.09% of that benchmark); the remaining ~1% consists of single SNPs/indels near chain-edge and representation-difference regions.
 
+3. **GATK gVCF, `gatk-test-data` HG00187 reblocked exome gVCF (hg38, GATK-produced)** — 2,977,065 gVCF records; the pinned runtime (Temurin JRE 17.0.20.1 + GATK 4.7.0.0) was downloaded, installed and executed in the same run; GenotypeGVCFs then liftover produced 71,370 variants with 479 rejects (0.67%), source/target REF validation, TBI and placeholder checks passing (2m24s including runtime download).
+
 ## Engine validation
 
 Every native bundle is self-describing. Build CI must prove that:

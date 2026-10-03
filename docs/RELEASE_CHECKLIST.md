@@ -70,8 +70,8 @@
 ### GATK/HaplotypeCaller gVCF
 
 - [x] source-genotyping implementation + tests.
-- [ ] real HaplotypeCaller gVCF through pinned GenotypeGVCFs + liftover.
-- [ ] Linux managed Java/GATK first-use smoke test.
+- [x] real GATK-produced gVCF (`gatk-test-data` HG00187 reblocked exome gVCF, hg38) through pinned GenotypeGVCFs + liftover: 2,977,065 gVCF records -> 71,370 genotyped variants lifted, 479 rejected, all REF/index/placeholder QC passing.
+- [x] Linux managed Java/GATK first-use smoke test (pinned Temurin JRE 17.0.20.1 + GATK 4.7.0.0 downloaded, installed and executed in the same run, 2m24s).
 - [ ] Windows managed Java/GATK first-use smoke test.
 
 ## Reject research
