@@ -1,0 +1,23 @@
+1 VERSIONINFO
+FILEVERSION     {FILE_VERSION_NUM}
+PRODUCTVERSION  {FILE_VERSION_NUM}
+BEGIN
+  BLOCK "StringFileInfo"
+  BEGIN
+    BLOCK "040904B0"
+    BEGIN
+      VALUE "CompanyName",      "VCF Lift"
+      VALUE "FileDescription",  "VCF Lift - local genome build conversion"
+      VALUE "FileVersion",      "{FILE_VERSION}"
+      VALUE "InternalName",     "vcflift"
+      VALUE "LegalCopyright",   "MIT License"
+      VALUE "OriginalFilename", "VCFLift-windows-amd64.exe"
+      VALUE "ProductName",      "VCF Lift"
+      VALUE "ProductVersion",   "{FILE_VERSION}"
+    END
+  END
+  BLOCK "VarFileInfo"
+  BEGIN
+    VALUE "Translation", 0x409, 1200
+  END
+END

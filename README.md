@@ -118,6 +118,8 @@ You can still override the auto-detected artifact with `--windows-engine PATH`.
 
 Native Windows developers can alternatively use `build.ps1`.
 
+Windows builds are not code-signed, so SmartScreen may show a "Windows protected your PC" prompt on first run: choose **More info → Run anyway**. The `.exe` carries embedded version metadata (visible in Explorer → Properties → Details).
+
 Older development ZIPs omitted `go.sum`. A full GUI/cross build runs `go mod tidy` once when needed; **keep/commit the resulting `go.sum`** for the v1.0 source tree.
 
 See [`docs/DEVELOPMENT.md`](docs/DEVELOPMENT.md).

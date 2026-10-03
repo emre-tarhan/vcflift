@@ -318,6 +318,36 @@ build_native() {
   step_end
 }
 
+# Windows version metadata: render a .syso resource from the Version constant
+# so the .exe reports FileVersion/ProductVersion in Explorer. Optional; the
+# build proceeds without it when windres is not installed.
+generate_windows_syso() {
+  local version
+  version=$(grep -oE 'Version = "[^"]+"' internal/converter/native.go | head -1 | sed 's/.*"\(.*\)"/\1/')
+  local numeric
+  numeric=$(printf '%s' "$version" | grep -oE '^[0-9]+\.[0-9]+\.[0-9]+')
+  if [[ -z "$numeric" ]]; then
+    echo "warning: could not parse version '$version' for Windows metadata; skipping .syso" >&2
+    return 0
+  fi
+  local a b c
+  IFS='.' read -r a b c <<< "$numeric"
+  mkdir -p build
+  sed -e "s/{FILE_VERSION_NUM}/$a,$b,$c,0/g" \
+      -e "s/{FILE_VERSION}/$version/g" \
+      packaging/windows-version.rc.in > build/windows-version.rc
+  x86_64-w64-mingw32-windres -O coff \
+    -o cmd/vcflift/vcflift_windows_amd64.syso build/windows-version.rc
+}
+
+check_windows_gui_metadata() {
+  if command -v x86_64-w64-mingw32-windres >/dev/null 2>&1; then
+    generate_windows_syso
+  else
+    echo "warning: x86_64-w64-mingw32-windres missing; building without Windows version metadata" >&2
+  fi
+}
+
 build_windows() {
   [[ "$(go env GOOS)" == "linux" ]] || echo "warning: WSL/Linux is the supported cross-build host for this helper" >&2
   if [[ -n "$WINDOWS_ENGINE_RESOLVED" ]]; then
@@ -344,6 +374,7 @@ build_windows() {
     echo "error: x86_64-w64-mingw32-gcc is missing. Rerun with --install-deps." >&2
     exit 1
   fi
+  check_windows_gui_metadata
   step_begin "Building Windows GUI"
   CGO_ENABLED=1 GOOS=windows GOARCH=amd64 CC=x86_64-w64-mingw32-gcc \
     go build -trimpath -ldflags="-s -w -H windowsgui" -o dist/VCFLift-windows-amd64.exe ./cmd/vcflift

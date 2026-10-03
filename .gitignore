@@ -11,3 +11,4 @@
 
 /artifacts/
 .zcodeignore
+/cmd/vcflift/vcflift_windows_amd64.syso

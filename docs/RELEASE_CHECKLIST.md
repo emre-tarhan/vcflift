@@ -17,7 +17,7 @@
 - [x] clean Linux GUI build from fresh checkout.
 - [x] clean WSL2 → Windows GUI cross-build with verified Windows engine artifact.
 - [x] clean native Windows CI build.
-- [ ] final Windows icon/version metadata/code signing decision.
+- [x] Windows version metadata embedded via windres `.syso` (icon deferred; code signing deferred — unsigned builds show the standard SmartScreen prompt).
 - [x] SHA256SUMS published by the release workflow; third-party notices live in `docs/THIRD_PARTY_RUNTIME.md` and the engine bundle `licenses/` directory.
 
 ## First-use / cache UX
