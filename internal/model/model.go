@@ -1,6 +1,10 @@
 package model
 
-import "time"
+import (
+	"time"
+
+	"github.com/emre-tarhan/vcflift/internal/ledger"
+)
 
 type FileKind string
 
@@ -140,12 +144,30 @@ type Result struct {
 	ProfileRejects              map[string]int64 `json:",omitempty"`
 	OutputStarAlleleRecords     int64
 	OutputNonRefAlleleRecords   int64
-	CandidateConservationPassed *bool `json:",omitempty"`
+	CandidateConservationPassed *bool            `json:",omitempty"`
+	Ledger                      *LedgerSummary   `json:",omitempty"`
+	Certificate                 *CertificateInfo `json:",omitempty"`
 	OutputPath                  string
 	IndexPath                   string
 	RejectPath                  string
-	ProfileRejectPath           string `json:",omitempty"`
+	ProfileRejectPath           string    `json:",omitempty"`
 	ReportPath                  string
 	StartedAt                   time.Time
 	CompletedAt                 time.Time
+}
+
+// LedgerSummary carries the conversion ledger counts (docs/LEDGER.md) plus
+// the sidecar path for GUI and CLI surfaces.
+type LedgerSummary struct {
+	ledger.Counts
+	SidecarPath string `json:"sidecar_path,omitempty"`
+}
+
+// CertificateInfo carries the user-FASTA dictionary verdict
+// (docs/CERTIFICATE.md). Statement is the exact verdict sentence block.
+type CertificateInfo struct {
+	Verdict     string `json:"verdict"`
+	Profile     string `json:"profile"`
+	FirstReason string `json:"first_reason,omitempty"`
+	Statement   string `json:"statement"`
 }

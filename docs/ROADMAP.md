@@ -24,8 +24,13 @@ This document exists because v0.9.0 and v1.0.0 were published on the same day (2
 
 ## Next
 
+- **v1.2.0-dev (in progress, every feature gated before release per the gate rule)**:
+  - **Conversion ledger** (`docs/LEDGER.md`, expert-approved design): six frozen record classes over observable letters, per-record gz TSV sidecar with verbatim `plugin_flip`/`plugin_swap` copy and `unclassifiable` reasons, report counts, three-sentence GUI surface. `left_align_representation_change` is reserved and unassigned — counter always zero, by design.
+  - **User-FASTA dictionary certificate** (`docs/CERTIFICATE.md`, expert-approved design): compatible/incompatible verdict against the profile dictionary, strict extras rule, fixed reason sentences, PAR exclusion stated in writing; incompatible skips only the record-level REF check, outputs stand, CLI exits 3.
+  - **`grch38-primary` reverse naming profile**: gated at 98.74% GRCh38 benchmark concordance (identical shared count to the UCSC-named reverse gate), zero REF mismatches, dictionary equal to the benchmark's (`docs/VALIDATION.md` gate 6).
+  - Remaining before release: real-cohort ledger observation, Windows smoke, release checklist.
 - **v1.1.x patches**: whatever the field reports; Windows first-use Java/GATK download exercise on real Windows hardware (code path shared with the validated Linux runs).
-- **Candidate v1.2 scope** (not committed until gated): reverse-direction gVCF candidate extraction on real data; multi-sample VCF behavior documented and gated; `grch38-primary` naming profile if requested.
+- **Still candidate**: reverse-direction gVCF candidate extraction on real data; multi-sample VCF behavior documented and gated.
 - Explicitly out of scope for the v1 line: T2T targets, SV liftover (separate problem domain — `liftoverSV`), cohort/joint genotyping stories, target-build gVCF production. These need designs of their own, not extensions of the chain-file path.
 
 ## Compatibility promises

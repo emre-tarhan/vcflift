@@ -208,3 +208,76 @@ func TestCheckREF(t *testing.T) {
 		t.Fatal("missing contig should fail")
 	}
 }
+
+func TestParseGRCh38Primary(t *testing.T) {
+	p, err := Parse("grch38-primary")
+	if err != nil || p != GRCh38Primary {
+		t.Fatalf("Parse(grch38-primary)=%v,%v", p, err)
+	}
+	if p.RenamesToGRCh37() {
+		t.Fatal("grch38-primary is not a GRCh37-naming profile")
+	}
+	if !p.RenamesContigs() {
+		t.Fatal("grch38-primary renames contigs")
+	}
+}
+
+func TestGRCh38PrimaryContigsDictionary(t *testing.T) {
+	dict := GRCh38PrimaryContigs()
+	if len(dict) != 25 {
+		t.Fatalf("GRCh38 dictionary has %d contigs, want 25", len(dict))
+	}
+	byName := make(map[string]int64, len(dict))
+	for _, c := range dict {
+		byName[c.Name] = c.Length
+	}
+	if byName["1"] != 248956422 || byName["X"] != 156040895 || byName["Y"] != 57227415 || byName["MT"] != 16569 {
+		t.Fatalf("dictionary bounds wrong: %v", byName)
+	}
+	if s, ok := GRCh38ToUCSC("MT"); !ok || s != "chrM" {
+		t.Fatalf("GRCh38ToUCSC(MT)=%q,%v", s, ok)
+	}
+	if s, ok := GRCh38ToUCSC("1"); !ok || s != "chr1" {
+		t.Fatalf("GRCh38ToUCSC(1)=%q,%v", s, ok)
+	}
+}
+
+func TestSplitGRCh38Primary(t *testing.T) {
+	input := `##fileformat=VCFv4.2
+##reference=hg38
+##contig=<ID=chr1,length=248956422>
+##contig=<ID=chrM,length=16569>
+##contig=<ID=chrUn_GL000220v1,length=161802>
+#CHROM	POS	ID	REF	ALT	QUAL	FILTER	INFO
+chr1	10001	.	A	G	50	PASS	.
+chrM	101	.	T	C	50	PASS	.
+chrUn_GL000220v1	500	.	G	A	50	PASS	.
+`
+	var primary, reject bytes.Buffer
+	stats, err := Split(strings.NewReader(input), GRCh38Primary, &primary, &reject)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stats.Kept != 2 || stats.StaleChrM != 0 || stats.NonPrimaryContig != 1 {
+		t.Fatalf("stats=%+v", stats)
+	}
+	p := primary.String()
+	if !strings.Contains(p, "##vcflift_target_profile=grch38-primary") {
+		t.Fatal("primary header missing profile line")
+	}
+	if !strings.Contains(p, "##contig=<ID=1,length=248956422>") || !strings.Contains(p, "##contig=<ID=MT,length=16569>") {
+		t.Fatal("primary header missing GRCh38 dictionary bounds")
+	}
+	if strings.Contains(p, "ID=chr") {
+		t.Fatal("primary header still has UCSC contig lines")
+	}
+	// hg38 chrM is the rCRS — identical to the GRCh38 MT — so chrM carries
+	// over as MT instead of being rejected like hg19 chrM.
+	if !strings.Contains(p, "\n1\t10001\t") || !strings.Contains(p, "\nMT\t101\t") {
+		t.Fatalf("primary records wrong:\n%s", p)
+	}
+	rj := reject.String()
+	if !strings.Contains(rj, "\nchrUn_GL000220v1\t500\t.\tG\tA\t50\t"+FilterNonPrimaryContig+"\t") || strings.Contains(rj, "\nchrM\t") {
+		t.Fatalf("reject bucket wrong:\n%s", rj)
+	}
+}

@@ -111,7 +111,37 @@
 - [x] `Version` const → 1.1.0; Windows version metadata regenerated from it by `build.sh`.
 - [x] CHANGELOG v1.1.0 section; `docs/ROADMAP.md` version discipline + shipped/next.
 - [x] full non-dev build (`build.sh`, module verify + tests + vet + Linux/Windows artifacts) passing on the release machine.
-- [ ] tag `v1.1.0` and push (release CI publishes with SHA256SUMS).
+- [x] tag `v1.1.0` and push (release CI publishes with SHA256SUMS).
+
+## v1.2.0 additions
+
+### Conversion ledger (docs/LEDGER.md)
+
+- [x] expert-approved design (rev 3) before any code; six frozen classes; `left_align_representation_change` reserved, never assigned, counter zero by design.
+- [x] sidecar `<output>.ledger.tsv.gz` always written when records lifted: gz TSV, verbatim `plugin_flip`/`plugin_swap` copy, `reason` column on `unclassifiable` rows.
+- [x] QC report `ledger` block + `ledger_sidecar`; GUI at most three sentences; `plugin_swap` never in the GUI.
+- [x] real-data pass inside gate 6: class sums equal `lifted_variants`; 39.7 MB sidecar for 4,033,381 records.
+- [x] output VCF byte-identical (ledger is a side file; reports only gain fields).
+
+### User-FASTA dictionary certificate (docs/CERTIFICATE.md)
+
+- [x] expert-approved design (rev 3) before any code; "legal/valid/invalid" never used; PAR exclusion stated in every verdict and machine-readable (`par_measured:false`).
+- [x] strict extras rule, frozen reason order, exact reason sentences; incompatible → conversion completes, outputs stand, record-level `CheckREF` skipped, CLI exit 3 + fixed state sentence.
+- [x] real-file verification: hg19-derived FASTA under `grch37-primary` → incompatible, MT reason, exit 3 (docs/VALIDATION.md).
+
+### `grch38-primary` profile
+
+- [x] reverse-only naming profile; chrM carries over as MT (rCRS identity); non-primary bucket; direction guards both ways (GRCh37 profiles forward-only).
+- [x] gate 6: 98.74% GRCh38 benchmark concordance (identical shared count to the UCSC-named reverse gate), zero REF mismatches, dictionary equal to the benchmark's.
+- [x] GUI fourth dropdown entry with contract text + automatic reset of inapplicable selections; CLI flag help updated.
+
+### Release hygiene
+
+- [x] `Version` const → 1.2.0; CHANGELOG v1.2.0 section; ROADMAP/README/VALIDATION/TARGET_PROFILES updated.
+- [x] full non-dev build (`build.sh`) passing on the release machine.
+- [x] Windows CLI smoke (WSL interop): version, inspect with direction detection, and the four-profile flag surface on the real Windows binary (full Windows-path convert is covered by the real-hardware GUI smoke below).
+- [ ] Windows GUI smoke on real hardware (user; conversion + fourth dropdown entry + ledger line + certificate surfaces).
+- [ ] tag `v1.2.0` and push (release CI publishes with SHA256SUMS).
 
 ## v1.0 rule
 

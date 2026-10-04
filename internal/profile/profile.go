@@ -26,6 +26,13 @@ const (
 	// HS37D5 uses the same GRCh37 primary naming; hs37d5 decoy contigs are
 	// not produced.
 	HS37D5 Profile = "hs37d5"
+	// GRCh38Primary renames the lifted UCSC hg38 output of the REVERSE
+	// direction (hg19 -> hg38) to GRCh38 primary naming (1-22, X, Y, MT) and
+	// drops every non-primary contig into a non_primary_contig bucket.
+	// Unlike hg19 chrM, UCSC hg38 chrM is the rCRS — sequence-identical to
+	// the GRCh38 MT — so chrM records carry over as MT instead of being
+	// rejected.
+	GRCh38Primary Profile = "grch38-primary"
 )
 
 // Reject FILTER identifiers written into the profile reject buckets.
@@ -42,8 +49,10 @@ func Parse(s string) (Profile, error) {
 		return GRCh37Primary, nil
 	case string(HS37D5):
 		return HS37D5, nil
+	case string(GRCh38Primary):
+		return GRCh38Primary, nil
 	default:
-		return "", fmt.Errorf("unknown target profile %q (expected ucsc-hg19, grch37-primary, or hs37d5)", s)
+		return "", fmt.Errorf("unknown target profile %q (expected ucsc-hg19, grch37-primary, hs37d5, or grch38-primary)", s)
 	}
 }
 
@@ -52,6 +61,11 @@ func (p Profile) IsDefault() bool { return p == UCSCHg19 }
 // RenamesToGRCh37 reports whether the profile rewrites the lifted UCSC hg19
 // output into GRCh37 primary naming.
 func (p Profile) RenamesToGRCh37() bool { return p == GRCh37Primary || p == HS37D5 }
+
+// RenamesContigs reports whether the profile rewrites the lifted UCSC output
+// into primary contig naming at all (GRCh37 naming on the forward hg38 -> hg19
+// direction, GRCh38 naming on the reverse hg19 -> hg38 direction).
+func (p Profile) RenamesContigs() bool { return p.RenamesToGRCh37() || p == GRCh38Primary }
 
 // grch37PrimaryContigs is the GRCh37 primary contig dictionary in sort order.
 // Lengths are sequence-identical to UCSC hg19 for 1-22/X/Y; MT is the rCRS
@@ -87,6 +101,113 @@ func GRCh37HeaderContigLines() []string {
 		lines = append(lines, fmt.Sprintf("##contig=<ID=%s,length=%d>", c.Name, c.Length))
 	}
 	return lines
+}
+
+// Contig is one entry of a primary contig dictionary.
+type Contig struct {
+	Name   string
+	Length int64
+}
+
+// GRCh37PrimaryContigs returns the GRCh37 primary contig dictionary in sort
+// order. Single source of truth for header writing and for dictionary
+// compatibility checks (docs/CERTIFICATE.md); callers must not re-list these
+// contigs.
+func GRCh37PrimaryContigs() []Contig {
+	out := make([]Contig, 0, len(grch37PrimaryContigs))
+	for _, c := range grch37PrimaryContigs {
+		out = append(out, Contig{Name: c.Name, Length: c.Length})
+	}
+	return out
+}
+
+var grch37ToUCSC = func() map[string]string {
+	m := make(map[string]string, len(grch37PrimaryContigs)-1)
+	for _, c := range grch37PrimaryContigs {
+		if c.Name != "MT" {
+			m[c.Name] = "chr" + c.Name
+		}
+	}
+	return m
+}()
+
+// GRCh37ToUCSC maps a GRCh37 primary contig name (1-22, X, Y) back to the
+// UCSC chr-prefixed name the SRC_CHROM annotation carries. ok is false for
+// names outside the rename map (MT is never renamed; the profile rejects it
+// earlier). Used by the conversion ledger to normalize naming before
+// classifying (docs/LEDGER.md, tree step 1).
+func GRCh37ToUCSC(name string) (string, bool) {
+	s, ok := grch37ToUCSC[name]
+	return s, ok
+}
+
+// grch38PrimaryContigs is the GRCh38 primary contig dictionary in sort order.
+// Lengths are sequence-identical to UCSC hg38 for 1-22/X/Y; chrM and the
+// GRCh38 MT are both the rCRS (16569), so MT carries over from hg38 chrM by
+// renaming alone — unlike the hg19 chrM case (NC_001807, 16571).
+var grch38PrimaryContigs = []struct {
+	Name   string
+	Length int64
+}{
+	{"1", 248956422}, {"2", 242193529}, {"3", 198295559}, {"4", 190214555},
+	{"5", 181538259}, {"6", 170805979}, {"7", 159345973}, {"8", 145138636},
+	{"9", 138394717}, {"10", 133797422}, {"11", 135086622}, {"12", 133275309},
+	{"13", 114364328}, {"14", 107043718}, {"15", 101991189}, {"16", 90338345},
+	{"17", 83257441}, {"18", 80373285}, {"19", 58617616}, {"20", 64444167},
+	{"21", 46709983}, {"22", 50818468}, {"X", 156040895}, {"Y", 57227415},
+	{"MT", 16569},
+}
+
+// GRCh38PrimaryContigs returns the GRCh38 primary contig dictionary in sort
+// order. Single source of truth for the grch38-primary header dictionary and
+// dictionary compatibility checks; callers must not re-list these contigs.
+func GRCh38PrimaryContigs() []Contig {
+	out := make([]Contig, 0, len(grch38PrimaryContigs))
+	for _, c := range grch38PrimaryContigs {
+		out = append(out, Contig{Name: c.Name, Length: c.Length})
+	}
+	return out
+}
+
+func grch38HeaderContigLines() []string {
+	lines := make([]string, 0, len(grch38PrimaryContigs))
+	for _, c := range grch38PrimaryContigs {
+		lines = append(lines, fmt.Sprintf("##contig=<ID=%s,length=%d>", c.Name, c.Length))
+	}
+	return lines
+}
+
+var ucscToGRCh38 = func() map[string]string {
+	m := make(map[string]string, len(grch38PrimaryContigs))
+	for _, c := range grch38PrimaryContigs {
+		if c.Name == "MT" {
+			m["chrM"] = "MT"
+			continue
+		}
+		m["chr"+c.Name] = c.Name
+	}
+	return m
+}()
+
+var grch38ToUCSC = func() map[string]string {
+	m := make(map[string]string, len(grch38PrimaryContigs))
+	for _, c := range grch38PrimaryContigs {
+		if c.Name == "MT" {
+			m["MT"] = "chrM"
+			continue
+		}
+		m[c.Name] = "chr" + c.Name
+	}
+	return m
+}()
+
+// GRCh38ToUCSC maps a GRCh38 primary contig name (1-22, X, Y, MT) back to the
+// UCSC chr-prefixed name the SRC_CHROM annotation carries on the reverse
+// direction. Used by the conversion ledger to normalize naming before
+// classifying (docs/LEDGER.md, tree step 1).
+func GRCh38ToUCSC(name string) (string, bool) {
+	s, ok := grch38ToUCSC[name]
+	return s, ok
 }
 
 type faidxEntry struct {
@@ -266,17 +387,31 @@ func OpenText(path string) (io.Reader, func(), error) {
 	return zr, func() { _ = zr.Close(); _ = f.Close() }, nil
 }
 
-// Split reads a lifted UCSC-hg19 VCF (plain or bgzip text) and writes:
-//   - primaryW: GRCh37-named primary records with a GRCh37 primary header,
-//   - rejectW: chrM records marked FILTER=stale_hg19_chrM and non-primary
-//     contig records marked FILTER=non_primary_contig, sharing one header.
+// Split reads a lifted UCSC-named VCF (plain or bgzip text) and writes:
+//   - primaryW: primary-named records with the profile's primary header
+//     (GRCh37 dictionary for grch37-primary/hs37d5, GRCh38 dictionary for
+//     grch38-primary),
+//   - rejectW: chrM records marked FILTER=stale_hg19_chrM (grch37 profiles
+//     only — hg19 chrM is NC_001807, not the rCRS; on grch38-primary hg38
+//     chrM carries over as MT instead) and non-primary contig records marked
+//     FILTER=non_primary_contig, sharing one header.
 //
 // The reject writer stays empty when nothing is dropped. Records keep their
 // input order, which is the pipeline's contig-sorted order.
 func Split(r io.Reader, p Profile, primaryW, rejectW io.Writer) (Stats, error) {
 	var stats Stats
-	if !p.RenamesToGRCh37() {
-		return stats, fmt.Errorf("profile %s does not rename to GRCh37", p)
+	if !p.RenamesContigs() {
+		return stats, fmt.Errorf("profile %s does not rename to primary contig naming", p)
+	}
+	var renameTo map[string]string
+	var dictLines []string
+	switch {
+	case p.RenamesToGRCh37():
+		renameTo = ucscToGRCh37
+		dictLines = GRCh37HeaderContigLines()
+	case p == GRCh38Primary:
+		renameTo = ucscToGRCh38
+		dictLines = grch38HeaderContigLines()
 	}
 	sc := bufio.NewScanner(r)
 	buf := make([]byte, 64*1024)
@@ -287,7 +422,7 @@ func Split(r io.Reader, p Profile, primaryW, rejectW io.Writer) (Stats, error) {
 	var chromLine string
 	headerDone := false
 
-	flushHeader := func(w io.Writer, extraMeta []string, useGRCh37Dict bool) error {
+	flushHeader := func(w io.Writer, extraMeta []string, dict []string) error {
 		if chromLine == "" {
 			return fmt.Errorf("VCF header has no #CHROM line")
 		}
@@ -300,12 +435,12 @@ func Split(r io.Reader, p Profile, primaryW, rejectW io.Writer) (Stats, error) {
 			b.WriteString(l)
 			b.WriteByte('\n')
 		}
-		if useGRCh37Dict {
+		if dict != nil {
 			b.WriteString("##vcflift_target_profile=" + string(p) + "\n")
 			if p == HS37D5 {
 				b.WriteString("##vcflift_profile_note=hs37d5 naming profile: GRCh37 primary contigs only; hs37d5 decoy contigs are not produced\n")
 			}
-			for _, l := range GRCh37HeaderContigLines() {
+			for _, l := range dict {
 				b.WriteString(l)
 				b.WriteByte('\n')
 			}
@@ -326,8 +461,8 @@ func Split(r io.Reader, p Profile, primaryW, rejectW io.Writer) (Stats, error) {
 		if !rejectHeaderFlushed {
 			if err := flushHeader(rejectW, []string{
 				"##FILTER=<ID=" + FilterStaleHg19ChrM + ",Description=\"hg19 chrM is the old NC_001807 sequence; GRCh37 MT (rCRS) coordinates cannot be derived by renaming\">",
-				"##FILTER=<ID=" + FilterNonPrimaryContig + ",Description=\"Record lifted to a non-primary hg19 contig (unplaced/unlocalized/alt/haplotype); not part of the GRCh37 primary assembly\">",
-			}, false); err != nil {
+				"##FILTER=<ID=" + FilterNonPrimaryContig + ",Description=\"Record lifted to a non-primary contig (unplaced/unlocalized/alt/haplotype); not part of the primary assembly\">",
+			}, nil); err != nil {
 				return err
 			}
 			rejectHeaderFlushed = true
@@ -352,12 +487,12 @@ func Split(r io.Reader, p Profile, primaryW, rejectW io.Writer) (Stats, error) {
 				contigLines = append(contigLines, line)
 			case strings.HasPrefix(line, "##"):
 				meta = append(meta, line)
-			case strings.HasPrefix(line, "#CHROM"):
-				chromLine = line
-				headerDone = true
-				if err := flushHeader(primaryW, nil, true); err != nil {
-					return stats, err
-				}
+				case strings.HasPrefix(line, "#CHROM"):
+					chromLine = line
+					headerDone = true
+					if err := flushHeader(primaryW, nil, dictLines); err != nil {
+						return stats, err
+					}
 			}
 			continue
 		}
@@ -368,14 +503,23 @@ func Split(r io.Reader, p Profile, primaryW, rejectW io.Writer) (Stats, error) {
 		}
 		contig = line[:tab]
 		switch {
+		case contig == "chrM" && renameTo["chrM"] != "":
+			// grch38-primary: hg38 chrM is the rCRS — identical to the GRCh38
+			// MT — so the record carries over by renaming, not rejection.
+			f := strings.Split(line, "\t")
+			f[0] = renameTo[contig]
+			if _, err := io.WriteString(primaryW, strings.Join(f, "\t")+"\n"); err != nil {
+				return stats, err
+			}
+			stats.Kept++
 		case contig == "chrM" || contig == "chrMT":
 			if err := writeReject(line, FilterStaleHg19ChrM); err != nil {
 				return stats, err
 			}
 			stats.StaleChrM++
-		case ucscToGRCh37[contig] != "":
+		case renameTo[contig] != "":
 			f := strings.Split(line, "\t")
-			f[0] = ucscToGRCh37[contig]
+			f[0] = renameTo[contig]
 			if _, err := io.WriteString(primaryW, strings.Join(f, "\t")+"\n"); err != nil {
 				return stats, err
 			}

@@ -54,6 +54,7 @@ func Run() {
 		"UCSC hg19 (chr names)":   "ucsc-hg19",
 		"GRCh37 primary (no chr)": "grch37-primary",
 		"hs37d5 (GRCh37 naming)":  "hs37d5",
+		"GRCh38 primary (no chr)": "grch38-primary",
 	}
 	// Contract text is unconditional: it states what the profile delivers
 	// (and what it never carries) whether or not this input has chrM or
@@ -62,6 +63,7 @@ func Run() {
 		"ucsc-hg19":      "UCSC hg19 chr naming · chrM kept as hg19-native NC_001807",
 		"grch37-primary": "GRCh37 primary contigs only — no decoys, no EBV. chrM is not carried: hg19 chrM is NC_001807, GRCh37 MT is the rCRS.",
 		"hs37d5":         "GRCh37 primary contigs only — no decoys, no EBV; this is not the 1000 Genomes hs37d5 analysis set. chrM is not carried (NC_001807 vs rCRS).",
+		"grch38-primary": "GRCh38 primary contigs only — no alt, no decoy, no EBV. chrM carries over as MT (the rCRS; hg38 chrM and GRCh38 MT are the same sequence). Applies to hg19 inputs (conversion to hg38).",
 	}
 	targetProfile := "ucsc-hg19"
 	profileCaption := mutedLabel(profileCaptions["ucsc-hg19"])
@@ -71,6 +73,7 @@ func Run() {
 		"UCSC hg19 (chr names)",
 		"GRCh37 primary (no chr)",
 		"hs37d5 (GRCh37 naming)",
+		"GRCh38 primary (no chr)",
 	}, func(choice string) {
 		targetProfile = profileValues[choice]
 		if targetProfile == "" {
@@ -83,7 +86,7 @@ func Run() {
 	profileSelect.SetSelected("UCSC hg19 (chr names)")
 
 	statusTitle := widget.NewLabelWithStyle("Ready for a file", fyne.TextAlignLeading, fyne.TextStyle{Bold: true})
-	statusBody := mutedLabel("Choose an hg38 VCF or supported gVCF. Everything is processed locally on this computer.")
+	statusBody := mutedLabel("Choose an hg38 or hg19 VCF, or a supported gVCF. Everything is processed locally on this computer.")
 	statusBody.Wrapping = fyne.TextWrapWord
 	workflow, workflowView := newWorkflowTracker()
 
@@ -122,8 +125,11 @@ func Run() {
 	// surface the profile contract at selection time, not only on completion.
 	notifyProfileChange = func(p string) {
 		profileCaption.SetText(profileCaptions[p])
-		if selectedPath != "" && currentPlan.Direction != model.DirectionReverse {
-			setStatus("Output profile", profileCaptions[p])
+		if selectedPath != "" {
+			reverse := currentPlan.Direction == model.DirectionReverse
+			if (p == "grch38-primary") == reverse {
+				setStatus("Output profile", profileCaptions[p])
+			}
 		}
 	}
 
@@ -160,16 +166,23 @@ func Run() {
 		samples.SetText(fmt.Sprintf("%d", len(inspection.Samples)))
 		output.SetText(plan.OutputPath)
 		metadataSection.Show()
-		reverse := plan.Direction == model.DirectionReverse
-		targetBuild := "hg19"
-		if reverse {
-			targetBuild = "hg38"
-			convertBtn.SetText("Convert to hg38")
-			profileSelect.Hide()
-		} else {
-			convertBtn.SetText("Convert to hg19")
+			reverse := plan.Direction == model.DirectionReverse
+			targetBuild := "hg19"
+			if reverse {
+				targetBuild = "hg38"
+				convertBtn.SetText("Convert to hg38")
+			} else {
+				convertBtn.SetText("Convert to hg19")
+			}
+			// Each naming profile applies to one direction: the GRCh37
+			// profiles need an hg38 input, grch38-primary an hg19 input. The
+			// dropdown stays visible; an inapplicable selection resets to the
+			// default instead of failing later.
+			if (reverse && (targetProfile == "grch37-primary" || targetProfile == "hs37d5")) ||
+				(!reverse && targetProfile == "grch38-primary") {
+				profileSelect.SetSelected("UCSC hg19 (chr names)")
+			}
 			profileSelect.Show()
-		}
 		if inspection.Kind == model.FileKindGVCF {
 			gvcfOutputContract := "The output will be an " + targetBuild + " variant VCF, not an " + targetBuild + " gVCF — joint genotyping cannot be done on " + targetBuild + "."
 			switch plan.Mode {
@@ -275,10 +288,38 @@ func Run() {
 				if profileLines != "" {
 					profileLines = "\n" + profileLines + "\n"
 				}
+				// Conversion ledger (docs/LEDGER.md Section 7): at most three
+				// sentences — the class line, the plugin flip sentence when
+				// the plugin set FLIP, and the version-gap sentence whenever
+				// the class line shows. The representation-change count never
+				// enters the class line; plugin_swap stays in the report.
+				var ledgerLines string
+				if result.Ledger != nil {
+					var parts []string
+					if n := result.Ledger.PositionShift; n > 0 {
+						parts = append(parts, fmt.Sprintf("%s position shifts", groupDigits(n)))
+					}
+					if n := result.Ledger.AlleleIndexRewrite; n > 0 {
+						parts = append(parts, fmt.Sprintf("%s allele rewrites", groupDigits(n)))
+					}
+					if n := result.Ledger.SameLocusAlleleSwap; n > 0 {
+						parts = append(parts, fmt.Sprintf("%s same-locus swaps", groupDigits(n)))
+					}
+					if n := result.Ledger.Unclassifiable; n > 0 {
+						parts = append(parts, fmt.Sprintf("%s unclassifiable", groupDigits(n)))
+					}
+					if len(parts) > 0 {
+						ledgerLines = "\nLedger: " + strings.Join(parts, " · ") + "\n"
+						if n := result.Ledger.PluginFlipRecords; n > 0 {
+							ledgerLines += fmt.Sprintf("Plugin reported flip on %s records; this is not a ledger class.\n", groupDigits(n))
+						}
+						ledgerLines += "representation-change class is not assigned in this version.\n"
+					}
+				}
 				setStatus("Conversion complete", fmt.Sprintf("%s variants were written to the %s output. QC and indexing completed successfully.", groupDigits(result.LiftedVariants), targetWord))
 				dialog.ShowInformation("Conversion complete", fmt.Sprintf(
-					"%s\n\nLifted variants: %s (%.3f%%)\nRejected variants: %s (%.3f%%)%s\nOutput\n%s\n\nQC report\n%s",
-					plain, groupDigits(result.LiftedVariants), successRate, groupDigits(result.RejectedVariants), rejectRate, profileLines, result.OutputPath, result.ReportPath,
+					"%s\n\nLifted variants: %s (%.3f%%)\nRejected variants: %s (%.3f%%)%s%s\nOutput\n%s\n\nQC report\n%s",
+					plain, groupDigits(result.LiftedVariants), successRate, groupDigits(result.RejectedVariants), rejectRate, profileLines, ledgerLines, result.OutputPath, result.ReportPath,
 				), w)
 			})
 		}()

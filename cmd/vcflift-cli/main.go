@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/emre-tarhan/vcflift/internal/cache"
+	"github.com/emre-tarhan/vcflift/internal/certificate"
 	"github.com/emre-tarhan/vcflift/internal/converter"
 	"github.com/emre-tarhan/vcflift/internal/engine"
 	"github.com/emre-tarhan/vcflift/internal/enginebundle"
@@ -56,6 +57,11 @@ func main() {
 		if errors.Is(err, flag.ErrHelp) {
 			return
 		}
+		var es exitStatus
+		if errors.As(err, &es) {
+			fmt.Fprintln(os.Stderr, es.message)
+			os.Exit(es.code)
+		}
 		fmt.Fprintln(os.Stderr, "error:", err)
 		if errors.Is(err, resources.ErrLicenseAcceptanceRequired) {
 			fmt.Fprintln(os.Stderr, "hint: review UCSC license terms and rerun with --accept-ucsc-license")
@@ -63,6 +69,17 @@ func main() {
 		os.Exit(1)
 	}
 }
+
+// exitStatus reports a completed run whose requested check did not pass:
+// outputs and report were written, the process still exits non-zero with the
+// verdict sentence. Code 3 stays distinct from engine failures (1) and usage
+// errors (2).
+type exitStatus struct {
+	code    int
+	message string
+}
+
+func (e exitStatus) Error() string { return e.message }
 
 func usage() {
 	fmt.Fprintln(os.Stderr, `VCF Lift
@@ -112,7 +129,7 @@ func runConvert(args []string) error {
 	fs.StringVar(&javaPath, "java", "", "Java executable for GATK gVCF genotyping")
 	fs.StringVar(&gatkJar, "gatk-jar", "", "GATK package jar for GenotypeGVCFs")
 	fs.StringVar(&gvcfMode, "gvcf-mode", "auto", "gVCF mode: auto (recommended), genotype, or candidate")
-	fs.StringVar(&targetProfile, "target-profile", "ucsc-hg19", "target naming profile: ucsc-hg19 (default), grch37-primary, or hs37d5")
+	fs.StringVar(&targetProfile, "target-profile", "ucsc-hg19", "target naming profile: ucsc-hg19 (default), grch37-primary, hs37d5 (forward hg38 to hg19), or grch38-primary (reverse hg19 to hg38)")
 	fs.StringVar(&grch37FASTA, "grch37-fasta", "", "optional GRCh37 FASTA for a second REF check (grch37-primary/hs37d5 profiles only)")
 	fs.IntVar(&threads, "threads", 0, "bcftools worker threads (0 = tool default)")
 	fs.BoolVar(&keepRejects, "keep-rejects", false, "keep rejected variants VCF")
@@ -163,7 +180,16 @@ func runConvert(args []string) error {
 	}
 	enc := json.NewEncoder(os.Stdout)
 	enc.SetIndent("", "  ")
-	return enc.Encode(result)
+	if err := enc.Encode(result); err != nil {
+		return err
+	}
+	// Dictionary certificate (docs/CERTIFICATE.md Section 7): the conversion
+	// completed and every output stands; the exit code is non-zero because
+	// the verdict is incompatible, not because a check was skipped.
+	if result.Certificate != nil && result.Certificate.Verdict == certificate.VerdictIncompatible {
+		return exitStatus{code: 3, message: result.Certificate.Statement + "\n" + certificate.StateIncompatible}
+	}
+	return nil
 }
 
 func runResources(args []string) error {

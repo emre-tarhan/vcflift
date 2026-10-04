@@ -11,8 +11,11 @@ Correct language: the `grch37-primary` and `hs37d5` profiles produce a **GRCh37 
 | `ucsc-hg19` (default) | UCSC `chr1`…`chrM` | kept (NC_001807, hg19-native) | kept |
 | `grch37-primary` | GRCh37 `1`–`22`, `X`, `Y` | rejected → `stale_hg19_chrM` | rejected → `non_primary_contig` |
 | `hs37d5` | same as `grch37-primary` | rejected → `stale_hg19_chrM` | rejected → `non_primary_contig` |
+| `grch38-primary` | GRCh38 `1`–`22`, `X`, `Y`, `MT` (reverse hg19 → hg38 only) | carried over as MT (the rCRS; hg38 chrM ≡ GRCh38 MT) | rejected → `non_primary_contig` |
 
 The GRCh37 header dictionary is rebuilt from the GRCh37 primary assembly (25 contigs in sort order, MT = rCRS `16569`), and every non-contig header line of the lifted output is preserved. The output header records `##vcflift_target_profile=<profile>`.
+
+`grch38-primary` applies to the reverse direction (hg19 input → hg38 output): it renames the lifted UCSC hg38 output to GRCh38 primary naming and drops non-primary contigs into the same `non_primary_contig` bucket. Unlike hg19 chrM, UCSC hg38 chrM is the rCRS — sequence-identical to the GRCh38 MT — so chrM records carry over as MT and no stale-chrM bucket exists on this side. The GRCh37 profiles remain forward-only and `grch38-primary` reverse-only; the converter rejects the mismatched combination up front. Gated at `docs/VALIDATION.md` gate 6.
 
 CLI:
 
@@ -58,3 +61,5 @@ hs37d5 is GRCh37 plus decoy contigs (and no alts). The `hs37d5` profile delivers
 ## Validation
 
 The `grch37-primary` profile was gated on the GIAB HG002 v4.2.1 GRCh38 benchmark through the full pipeline (see `docs/VALIDATION.md`, gate 4): 4,048,342 records in, 4,043,025 lifted into GRCh37 primary naming, liftover rejects identical to the ucsc-hg19 baseline (4,975), 342 records dropped as `non_primary_contig`. After left-aligned normalization with contig names reconciled, the profiled output matches **99.10%** of the official GRCh37 v4.2.1 benchmark exactly (3,997,316 / 4,033,796). `bcftools norm` reported zero REF mismatches on both sides against GRCh37-named hg19 primary sequence, independently confirming the sequence-identity claim behind the REF-validation coverage.
+
+The `grch38-primary` profile was gated on the GIAB HG002 v4.2.1 GRCh37 benchmark through the full reverse pipeline (see `docs/VALIDATION.md`, gate 6): 4,033,796 records in, 4,033,381 lifted into GRCh38 primary naming, liftover rejects identical to the ucsc-named reverse baseline (222), 193 records dropped as `non_primary_contig`. The output dictionary matches the benchmark's GRCh38 primary dictionary name-for-name and length-for-length, and after left-aligned normalization the profiled output matches **98.74%** of the official GRCh38 v4.2.1 benchmark exactly (3,997,338 / 4,048,342 — the identical shared count as the ucsc-named reverse gate, confirming the profile changes naming only), with zero REF mismatches over all 4,033,381 records.

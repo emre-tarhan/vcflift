@@ -648,3 +648,156 @@ func writeGzipText(t *testing.T, path, text string) {
 		t.Fatal(err)
 	}
 }
+
+func TestNativeConverterGRCh38TargetProfile(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("fake bcftools fixture is a POSIX shell script")
+	}
+	d := t.TempDir()
+	fake := filepath.Join(d, "bcftools")
+	script := `#!/bin/sh
+if [ "$1" = "--version" ]; then echo "bcftools 1.24"; exit 0; fi
+if [ "$1" = "plugin" ] && [ "$2" = "-l" ]; then echo "liftover"; exit 0; fi
+if [ "$1" = "+liftover" ] && [ "$2" = "-h" ]; then echo "--write-src --write-reject --lift-end"; exit 0; fi
+cmd="$1"
+shift
+out=""
+infile=""
+prev=""
+for a in "$@"; do
+  if [ "$prev" = "-o" ]; then out="$a"; fi
+  case "$a" in
+    *.vcf|*.vcf.gz) if [ -f "$a" ] && [ "$a" != "$out" ]; then infile="$a"; fi ;;
+  esac
+  prev="$a"
+done
+case "$cmd" in
+  index)
+    last=""
+    for a in "$@"; do last="$a"; done
+    : > "$last.tbi"
+    exit 0
+    ;;
+  sort|view)
+    if [ -n "$out" ]; then
+      if [ -n "$infile" ]; then gzip -c "$infile" > "$out"; else gzip -c > "$out"; fi
+    else
+      if [ -n "$infile" ]; then cat "$infile"; else cat; fi
+    fi
+    exit 0
+    ;;
+  +liftover)
+    cat
+    exit 0
+    ;;
+  norm|annotate)
+    if [ -n "$infile" ]; then cat "$infile"; else cat; fi
+    exit 0
+    ;;
+esac
+echo "unsupported fake bcftools command: $cmd" >&2
+exit 9
+`
+	if err := os.WriteFile(fake, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	fastaGZ := gzipBytes(t, ">chr1\nACGTACGT\n")
+	chain := []byte("chain fixture\n")
+	aliases := []byte("chr1\t1\tNC_000001.10\n")
+	files := map[string][]byte{
+		"/hg38.fa.gz": fastaGZ, "/hg19.fa.gz": fastaGZ, "/chain.gz": chain, "/aliases.txt": aliases,
+		"/chain19to38.gz": chain, "/hg19aliases.txt": aliases,
+	}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		b, ok := files[r.URL.Path]
+		if !ok {
+			http.NotFound(w, r)
+			return
+		}
+		_, _ = w.Write(b)
+	}))
+	defer srv.Close()
+
+	res := func(id, name string, payload []byte, transform resources.Transform, prepared string) resources.Resource {
+		h := md5.Sum(payload)
+		return resources.Resource{ID: id, Name: id, URL: srv.URL + name, Filename: filepath.Base(name), MD5: hex.EncodeToString(h[:]), Transform: transform, PreparedFilename: prepared}
+	}
+	manifest := resources.Manifest{Version: 1, Resources: []resources.Resource{
+		res("hg38_fasta", "/hg38.fa.gz", fastaGZ, resources.TransformGzipFASTA, "hg38.fa"),
+		res("hg19_fasta", "/hg19.fa.gz", fastaGZ, resources.TransformGzipFASTA, "hg19.fa"),
+		res("hg38_to_hg19_chain", "/chain.gz", chain, resources.TransformNone, ""),
+		res("hg19_to_hg38_chain", "/chain19to38.gz", chain, resources.TransformNone, ""),
+		res("hg38_aliases", "/aliases.txt", aliases, resources.TransformNone, ""),
+		res("hg19_aliases", "/hg19aliases.txt", aliases, resources.TransformNone, ""),
+	}}
+
+	// hg19-named input with an hg19 contig length: detected reverse.
+	input := filepath.Join(d, "old.vcf")
+	vcfText := "##fileformat=VCFv4.2\n##contig=<ID=chr1,length=249250621>\n#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\nchr1\t2\t.\tC\tT\t.\tPASS\t.\nchrM\t5\t.\tT\tC\t.\tPASS\t.\nchrUn_gl000220v1\t9\t.\tG\tA\t.\tPASS\t.\n"
+	if err := os.WriteFile(input, []byte(vcfText), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	output := filepath.Join(d, "old.grch38.vcf.gz")
+
+	c := NewNative(filepath.Join(d, "cache"))
+	c.Manifest = manifest
+	c.Installation = engine.Installation{BCFTools: fake}
+	result, err := c.Convert(context.Background(), model.JobConfig{
+		InputPath: input, OutputPath: output,
+		TargetProfile: "grch38-primary", KeepRejected: true,
+	}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Direction != model.DirectionReverse || result.TargetProfile != "grch38-primary" {
+		t.Fatalf("direction=%s profile=%s", result.Direction, result.TargetProfile)
+	}
+	// chr1 and chrM both carry over (hg38 chrM is the rCRS, identical to the
+	// GRCh38 MT); only the non-primary contig drops.
+	if result.LiftedVariants != 2 {
+		t.Fatalf("lifted=%d want 2 (chr1 + chrM as MT)", result.LiftedVariants)
+	}
+	if result.ProfileRejects["non_primary_contig"] != 1 || result.ProfileRejects["stale_hg19_chrM"] != 0 {
+		t.Fatalf("profile rejects=%v", result.ProfileRejects)
+	}
+
+	outText := readGzipText(t, output)
+	if !strings.Contains(outText, "##vcflift_target_profile=grch38-primary") ||
+		!strings.Contains(outText, "##contig=<ID=1,length=248956422>") ||
+		!strings.Contains(outText, "##contig=<ID=MT,length=16569>") {
+		t.Fatalf("profiled output header wrong:\n%s", outText)
+	}
+	if !strings.Contains(outText, "\n1\t2\t") || !strings.Contains(outText, "\nMT\t5\t") || strings.Contains(outText, "chrUn") {
+		t.Fatalf("profiled output records wrong:\n%s", outText)
+	}
+
+	rejText := readGzipText(t, result.ProfileRejectPath)
+	if !strings.Contains(rejText, "\nchrUn_gl000220v1\t9\t.\tG\tA\t.\tnon_primary_contig\t") || strings.Contains(rejText, "stale_hg19_chrM\t") {
+		t.Fatalf("profile reject bucket wrong:\n%s", rejText)
+	}
+
+	// The ledger runs on the reverse profiled output too (renamer maps
+	// GRCh38 names back to the UCSC source-side naming).
+	if result.Ledger == nil {
+		t.Fatal("ledger summary missing")
+	}
+
+	// Direction guards: GRCh37 profiles stay forward-only, grch38-primary
+	// stays reverse-only.
+	if _, err := c.Convert(context.Background(), model.JobConfig{
+		InputPath: input, OutputPath: filepath.Join(d, "g37.vcf.gz"), TargetProfile: "grch37-primary", Overwrite: true,
+	}, nil); err == nil || !strings.Contains(err.Error(), "forward hg38 to hg19 direction only") {
+		t.Fatalf("grch37 on reverse input: err=%v", err)
+	}
+	fwd := filepath.Join(d, "new.vcf")
+	fwdText := "##fileformat=VCFv4.2\n##contig=<ID=chr1,length=248956422>\n#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\nchr1\t2\t.\tC\tT\t.\tPASS\t.\n"
+	if err := os.WriteFile(fwd, []byte(fwdText), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.Convert(context.Background(), model.JobConfig{
+		InputPath: fwd, OutputPath: filepath.Join(d, "g38.vcf.gz"), TargetProfile: "grch38-primary", Overwrite: true,
+	}, nil); err == nil || !strings.Contains(err.Error(), "reverse hg19 to hg38 direction only") {
+		t.Fatalf("grch38 on forward input: err=%v", err)
+	}
+}

@@ -1,5 +1,13 @@
 # Changelog
 
+## v1.2.0 (2026-10-04)
+
+Auditability additions on top of the validated pipeline; the liftover core, engine, chain and reject defaults are untouched, and the output VCF stays byte-identical.
+
+- **Conversion ledger** (`docs/LEDGER.md`, expert-approved design): every lifted record is classified from observable letters into six frozen classes (`unchanged`, `same_locus_allele_swap`, `position_shift`, `left_align_representation_change`, `allele_index_rewrite`, `unclassifiable`). A per-record gz TSV sidecar `<output>.ledger.tsv.gz` records source/output CHROM/POS/REF/ALT, the class, the plugin's `FLIP`/`SWAP` annotations copied verbatim (never classified; no strand class exists), and a `reason` (`missing_src`/`contig_mismatch`/`no_pattern`) on `unclassifiable` rows. `left_align_representation_change` is reserved and never assigned in this version — its counter stays zero by design (the class needs the pre-left-align target position, which no current field carries). QC reports gain a `ledger` block; the GUI completion dialog gets at most three sentences (class line, plugin flip sentence, version-gap sentence).
+- **User-FASTA dictionary certificate** (`docs/CERTIFICATE.md`, expert-approved design): `--grch37-fasta` now gets a dictionary-level verdict — "Compatible/Incompatible with this dictionary" — before the record-level REF check. Strict extras rule (any decoy/EBV/other extra contig is incompatible, with reason sentences that state the dictionary's scope instead of calling the file broken); fixed reason order (missing → MT 16569/16571 → other lengths → decoys → EBV → other extras); PAR masking is not measured and is stated so in every verdict. Incompatible skips only the record-level check: the conversion completes, every output stands, and the CLI exits with code 3 plus "dictionary check completed: incompatible; record-level REF check skipped."
+- **`grch38-primary` reverse naming profile**: renames the hg38 output of hg19 → hg38 conversions to GRCh38 primary naming (`1`–`22`, `X`, `Y`, `MT`); chrM carries over as MT (hg38 chrM is the rCRS, sequence-identical to the GRCh38 MT — no stale-chrM bucket on this side); non-primary contigs drop into `non_primary_contig`. Gated at 98.74% GRCh38 benchmark concordance (identical shared count to the UCSC-named reverse gate), zero REF mismatches, dictionary equal to the benchmark's (docs/VALIDATION.md gate 6). The GRCh37 profiles stay forward-only and this one reverse-only; the converter rejects mismatched combinations up front. GUI dropdown gains the fourth entry with its contract text and resets inapplicable selections automatically.
+
 ## v1.1.1 (2026-10-04)
 
 GUI and documentation honesty; no pipeline, engine, chain or reject-default changes.

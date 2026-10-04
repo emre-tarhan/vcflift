@@ -9,9 +9,11 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/emre-tarhan/vcflift/internal/certificate"
 	"github.com/emre-tarhan/vcflift/internal/engine"
 	"github.com/emre-tarhan/vcflift/internal/enginebundle"
 	"github.com/emre-tarhan/vcflift/internal/gatk"
+	"github.com/emre-tarhan/vcflift/internal/ledger"
 	"github.com/emre-tarhan/vcflift/internal/model"
 	"github.com/emre-tarhan/vcflift/internal/profile"
 	"github.com/emre-tarhan/vcflift/internal/report"
@@ -19,7 +21,7 @@ import (
 	"github.com/emre-tarhan/vcflift/internal/vcf"
 )
 
-const Version = "1.1.1"
+const Version = "1.2.0"
 
 type NativeConverter struct {
 	Resources    *resources.Manager
@@ -66,7 +68,7 @@ func (c *NativeConverter) Convert(ctx context.Context, cfg model.JobConfig, prog
 	if !modeCompatible(plan.Inspection.Kind, cfg.Mode) {
 		return nil, fmt.Errorf("requested mode %q is incompatible with detected input %q", cfg.Mode, plan.Inspection.Kind)
 	}
-	if cfg.Mode == model.ModeGVCFGenotypeThenLift && cfg.Direction == model.DirectionReverse {
+	if cfg.Direction == model.DirectionReverse && cfg.Mode == model.ModeGVCFGenotypeThenLift {
 		return nil, fmt.Errorf("GATK GenotypeGVCFs is hg38-only; genotype hg19 gVCFs externally before reverse conversion")
 	}
 	prof, err := profile.Parse(cfg.TargetProfile)
@@ -74,8 +76,13 @@ func (c *NativeConverter) Convert(ctx context.Context, cfg model.JobConfig, prog
 		return nil, err
 	}
 	cfg.TargetProfile = string(prof)
-	if cfg.Direction == model.DirectionReverse && !prof.IsDefault() {
-		return nil, fmt.Errorf("target naming profiles apply to the forward hg38 to hg19 direction only")
+	// grch38-primary renames the hg38 output of the reverse direction; the
+	// GRCh37 profiles rename the hg19 output of the forward direction.
+	if prof == profile.GRCh38Primary && cfg.Direction != model.DirectionReverse {
+		return nil, fmt.Errorf("the grch38-primary naming profile applies to the reverse hg19 to hg38 direction only")
+	}
+	if cfg.Direction == model.DirectionReverse && !prof.IsDefault() && prof != profile.GRCh38Primary {
+		return nil, fmt.Errorf("the grch37-primary and hs37d5 naming profiles apply to the forward hg38 to hg19 direction only")
 	}
 	if cfg.GRCh37FASTA != "" {
 		if !prof.RenamesToGRCh37() {
@@ -174,7 +181,7 @@ func (c *NativeConverter) Convert(ctx context.Context, cfg model.JobConfig, prog
 		_ = os.Remove(p)
 	}
 	if cfg.Overwrite {
-		for _, p := range []string{cfg.OutputPath, cfg.OutputPath + ".tbi", reportPathFor(cfg.OutputPath), profileRejectPathFor(cfg.OutputPath), profileRejectPathFor(cfg.OutputPath) + ".tbi"} {
+		for _, p := range []string{cfg.OutputPath, cfg.OutputPath + ".tbi", reportPathFor(cfg.OutputPath), profileRejectPathFor(cfg.OutputPath), profileRejectPathFor(cfg.OutputPath) + ".tbi", ledgerPathFor(cfg.OutputPath)} {
 			_ = os.Remove(p)
 		}
 	}
@@ -216,12 +223,31 @@ func (c *NativeConverter) Convert(ctx context.Context, cfg model.JobConfig, prog
 	// Target naming profiles run after the validated liftover pipeline: the
 	// lifted UCSC hg19 output is renamed/filtered without touching the core.
 	profileRejectPath := profileRejectPathFor(cfg.OutputPath)
+	// User-FASTA dictionary certificate (docs/CERTIFICATE.md): a comparison
+	// verdict, never a repair, never a download. Incompatible skips only the
+	// record-level REF check; the conversion itself completes and the verdict
+	// is carried to the report.
+	var certReport *certificate.Report
+	skipRecordRefCheck := false
+	if cfg.GRCh37FASTA != "" {
+		if progress != nil {
+			progress(model.ProgressEvent{Stage: model.StageQC, Message: "check user FASTA dictionary"})
+		}
+		certReport, err = certificate.Compare(cfg.GRCh37FASTA, prepared.HG19Aliases, profile.GRCh37PrimaryContigs(), string(prof))
+		if err != nil {
+			return nil, err
+		}
+		if certReport.Verdict == certificate.VerdictIncompatible {
+			skipRecordRefCheck = true
+			plan.Warnings = append(plan.Warnings, certReport.Statement(string(prof)))
+		}
+	}
 	var profileStats profile.Stats
-	if prof.RenamesToGRCh37() {
+	if prof.RenamesContigs() {
 		if progress != nil {
 			progress(model.ProgressEvent{Stage: model.StageQC, Message: "apply " + string(prof) + " target profile"})
 		}
-		profileStats, err = c.applyProfile(ctx, inst.BCFTools, cfg, prof, tempOutput, profileRejectPath, &profileTemps, progress)
+		profileStats, err = c.applyProfile(ctx, inst.BCFTools, cfg, prof, tempOutput, profileRejectPath, skipRecordRefCheck, &profileTemps, progress)
 		if err != nil {
 			_ = os.Remove(tempOutput)
 			_ = os.Remove(tempOutput + ".tbi")
@@ -286,7 +312,7 @@ func (c *NativeConverter) Convert(ctx context.Context, cfg model.JobConfig, prog
 	// Conservation math must describe the liftover itself, so profile-dropped
 	// records count as lifted here.
 	preProfileLifted := lifted
-	if prof.RenamesToGRCh37() {
+	if prof.RenamesContigs() {
 		preProfileLifted = profileStats.PreProfileRecords()
 	}
 	liftoverInput := preProfileLifted + rejected
@@ -301,6 +327,35 @@ func (c *NativeConverter) Convert(ctx context.Context, cfg model.JobConfig, prog
 
 	if err := finalizePair(tempOutput, cfg.OutputPath); err != nil {
 		return nil, err
+	}
+
+	// Conversion ledger (docs/LEDGER.md): audit only, never blocks, never
+	// rewrites. The sidecar is written next to the final output; the output
+	// VCF itself is only read.
+	ledgerPath := ledgerPathFor(cfg.OutputPath)
+	var ledgerCounts *ledger.Counts
+	if lifted > 0 {
+		if progress != nil {
+			progress(model.ProgressEvent{Stage: model.StageQC, Message: "write conversion ledger"})
+		}
+		var renamer func(string) (string, bool)
+		switch prof {
+		case profile.GRCh38Primary:
+			renamer = profile.GRCh38ToUCSC
+		default:
+			if prof.RenamesToGRCh37() {
+				renamer = profile.GRCh37ToUCSC
+			}
+		}
+		counts, lerr := ledger.WriteSidecar(cfg.OutputPath, ledgerPath, renamer, Version)
+		if lerr != nil {
+			plan.Warnings = append(plan.Warnings, "conversion ledger not written: "+lerr.Error())
+			ledgerPath = ""
+		} else {
+			ledgerCounts = &counts
+		}
+	} else {
+		ledgerPath = ""
 	}
 
 	reportPath := reportPathFor(cfg.OutputPath)
@@ -366,6 +421,13 @@ func (c *NativeConverter) Convert(ctx context.Context, cfg model.JobConfig, prog
 			Contigs: rejectSummary.ContigCounts,
 		}
 	}
+	if ledgerCounts != nil {
+		doc.Ledger = ledgerCounts
+		doc.LedgerSidecar = ledgerPath
+	}
+	if certReport != nil {
+		doc.FastaCertificate = certReport
+	}
 
 	if plan.Inspection.InputIndexPath != "" {
 		doc.InputIndex = &report.InputIndexInfo{
@@ -398,6 +460,17 @@ func (c *NativeConverter) Convert(ctx context.Context, cfg model.JobConfig, prog
 	}
 	if plan.Inspection.Kind == model.FileKindVCF {
 		result.InputVariants = inputRecords
+	}
+	if ledgerCounts != nil {
+		result.Ledger = &model.LedgerSummary{Counts: *ledgerCounts, SidecarPath: ledgerPath}
+	}
+	if certReport != nil {
+		result.Certificate = &model.CertificateInfo{
+			Verdict:     certReport.Verdict,
+			Profile:     string(prof),
+			FirstReason: certReport.FirstReason,
+			Statement:   certReport.Statement(string(prof)),
+		}
 	}
 	if cfg.KeepRejected {
 		result.RejectPath = rejectPath
@@ -450,12 +523,14 @@ func finalizePair(temp, final string) error {
 func rejectPathFor(output string) string { return output + ".rejected.vcf.gz" }
 func reportPathFor(output string) string { return output + ".report.json" }
 
+func ledgerPathFor(output string) string { return output + ".ledger.tsv.gz" }
+
 func profileRejectPathFor(output string) string { return output + ".profile-rejected.vcf.gz" }
 
 // applyProfile splits the lifted UCSC-hg19 output into the GRCh37-named
 // primary output plus a profile reject bucket, then compresses both through
 // the native engine. It appends its temporary files to temps.
-func (c *NativeConverter) applyProfile(ctx context.Context, bcftoolsPath string, cfg model.JobConfig, prof profile.Profile, liftedOutput, profileRejectPath string, temps *[]string, progress func(model.ProgressEvent)) (profile.Stats, error) {
+func (c *NativeConverter) applyProfile(ctx context.Context, bcftoolsPath string, cfg model.JobConfig, prof profile.Profile, liftedOutput, profileRejectPath string, skipRefCheck bool, temps *[]string, progress func(model.ProgressEvent)) (profile.Stats, error) {
 	var stats profile.Stats
 	primaryPlain := liftedOutput + ".grch37.primary.vcf"
 	rejectPlain := liftedOutput + ".profile-rejected.vcf"
@@ -498,8 +573,9 @@ func (c *NativeConverter) applyProfile(ctx context.Context, bcftoolsPath string,
 	// Optional second REF check against a user-provided GRCh37 FASTA. Done in
 	// Go (faidx comparison) because `bcftools norm -N -c e` skips the REF
 	// check when normalization is disabled, and norm without -N would rewrite
-	// the validated representation.
-	if cfg.GRCh37FASTA != "" {
+	// the validated representation. Skipped when the dictionary certificate
+	// already judged the FASTA incompatible (docs/CERTIFICATE.md Section 7).
+	if cfg.GRCh37FASTA != "" && !skipRefCheck {
 		if err := profile.CheckREF(primaryPlain, cfg.GRCh37FASTA); err != nil {
 			cleanup()
 			return stats, err

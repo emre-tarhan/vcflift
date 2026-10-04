@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/emre-tarhan/vcflift/internal/certificate"
+	"github.com/emre-tarhan/vcflift/internal/ledger"
 	"github.com/emre-tarhan/vcflift/internal/model"
 )
 
@@ -76,6 +78,9 @@ type Document struct {
 	InputIndex              *InputIndexInfo      `json:"input_index,omitempty"`
 	QC                      QCInfo               `json:"qc"`
 	RejectSummary           *RejectSummary       `json:"reject_summary,omitempty"`
+	Ledger                  *ledger.Counts       `json:"ledger,omitempty"`
+	LedgerSidecar           string               `json:"ledger_sidecar,omitempty"`
+	FastaCertificate        *certificate.Report  `json:"fasta_certificate,omitempty"`
 	Warnings                []string             `json:"warnings,omitempty"`
 }
 
