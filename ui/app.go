@@ -216,7 +216,7 @@ func Run() {
 			_ = f.Close()
 			inspectPath(path)
 		}, w)
-		fd.SetFilter(storage.NewExtensionFileFilter([]string{".vcf", ".gz"}))
+		fd.SetFilter(storage.NewExtensionFileFilter([]string{".vcf", ".gz", ".bgz"}))
 		fd.Show()
 	})
 	browse.Importance = widget.HighImportance
@@ -227,7 +227,15 @@ func Run() {
 			setStatus("Conversion complete", "The converted VCF, index and QC report are ready.")
 			return
 		}
-		setStatus(conversionPhaseTitle(e.Stage), conversionPhaseBody(e.Stage))
+		title := conversionPhaseTitle(e.Stage)
+		body := conversionPhaseBody(e.Stage)
+		if e.Elapsed > 0 {
+			title = fmt.Sprintf("%s — %s elapsed", title, formatElapsed(e.Elapsed))
+			if conversionPhase(e.Stage) == 1 {
+				body += " Still working — whole-genome files can take 30 minutes or more."
+			}
+		}
+		setStatus(title, body)
 	}
 
 	runConversion := func() {
@@ -317,9 +325,13 @@ func Run() {
 					}
 				}
 				setStatus("Conversion complete", fmt.Sprintf("%s variants were written to the %s output. QC and indexing completed successfully.", groupDigits(result.LiftedVariants), targetWord))
+				var warningLines string
+				for _, warning := range result.Warnings {
+					warningLines += "\nNote: " + warning + "\n"
+				}
 				dialog.ShowInformation("Conversion complete", fmt.Sprintf(
-					"%s\n\nLifted variants: %s (%.3f%%)\nRejected variants: %s (%.3f%%)%s%s\nOutput\n%s\n\nQC report\n%s",
-					plain, groupDigits(result.LiftedVariants), successRate, groupDigits(result.RejectedVariants), rejectRate, profileLines, ledgerLines, result.OutputPath, result.ReportPath,
+					"%s\n\nLifted variants: %s (%.3f%%)\nRejected variants: %s (%.3f%%)%s%s%s\nOutput\n%s\n\nQC report\n%s",
+					plain, groupDigits(result.LiftedVariants), successRate, groupDigits(result.RejectedVariants), rejectRate, profileLines, warningLines, ledgerLines, result.OutputPath, result.ReportPath,
 				), w)
 			})
 		}()
@@ -450,7 +462,7 @@ func Run() {
 		}
 		resourceBusy = true
 		prepareResourcesBtn.Disable()
-		referenceSummary.SetText("Preparing reference data…")
+		referenceSummary.SetText("Preparing reference data… please wait.")
 		go func() {
 			m := resources.NewManager(resourceRoot)
 			m.AcceptRestrictedData = true
@@ -862,6 +874,7 @@ type resourceRow struct {
 	Download     *canvas.Text
 	Prepare      *canvas.Text
 	Progress     *widget.ProgressBar
+	Busy         *widget.ProgressBarInfinite
 	NeedsPrepare bool
 }
 
@@ -887,14 +900,17 @@ func makeResourceRows(manifest resources.Manifest) map[string]*resourceRow {
 		prepare.Alignment = fyne.TextAlignTrailing
 		progress := widget.NewProgressBar()
 		progress.Hide()
+		busy := widget.NewProgressBarInfinite()
+		busy.Hide()
 		title := widget.NewLabelWithStyle(label.title, fyne.TextAlignLeading, fyne.TextStyle{Bold: true})
 		detail := mutedLabel(label.detail)
 		detail.Wrapping = fyne.TextWrapOff
 		body := container.NewVBox(
 			container.NewBorder(nil, nil, container.NewVBox(title, detail), container.NewVBox(download, prepare)),
 			progress,
+			busy,
 		)
-		out[r.ID] = &resourceRow{ID: r.ID, View: body, Download: download, Prepare: prepare, Progress: progress, NeedsPrepare: r.Transform == resources.TransformGzipFASTA}
+		out[r.ID] = &resourceRow{ID: r.ID, View: body, Download: download, Prepare: prepare, Progress: progress, Busy: busy, NeedsPrepare: r.Transform == resources.TransformGzipFASTA}
 	}
 	return out
 }
@@ -908,6 +924,8 @@ func (r *resourceRow) SetReady(ready bool) {
 			setCanvasStatus(r.Prepare, "NOT REQUIRED", palette.Faint)
 		}
 		r.Progress.Hide()
+		r.Busy.Hide()
+		r.Busy.Stop()
 		return
 	}
 	setCanvasStatus(r.Download, "NOT READY", palette.Muted)
@@ -917,6 +935,8 @@ func (r *resourceRow) SetReady(ready bool) {
 		setCanvasStatus(r.Prepare, "NOT REQUIRED", palette.Faint)
 	}
 	r.Progress.Hide()
+	r.Busy.Hide()
+	r.Busy.Stop()
 }
 
 func (r *resourceRow) Update(e model.ProgressEvent) {
@@ -927,6 +947,8 @@ func (r *resourceRow) Update(e model.ProgressEvent) {
 		if r.NeedsPrepare {
 			setCanvasStatus(r.Prepare, "WAITING", palette.Muted)
 		}
+		r.Busy.Hide()
+		r.Busy.Stop()
 		if e.Total > 0 {
 			value := float64(e.Current) / float64(e.Total)
 			if value < 0 {
@@ -940,8 +962,10 @@ func (r *resourceRow) Update(e model.ProgressEvent) {
 		}
 	case strings.HasPrefix(msg, "preparing"):
 		setCanvasStatus(r.Download, "VERIFIED", palette.Success)
-		setCanvasStatus(r.Prepare, "PREPARING", palette.Accent)
+		setCanvasStatus(r.Prepare, "PREPARING…", palette.Accent)
 		r.Progress.Hide()
+		r.Busy.Show()
+		r.Busy.Start()
 	}
 }
 
@@ -962,6 +986,17 @@ func formatBytes(n int64) string {
 		exp++
 	}
 	return fmt.Sprintf("%.1f %ciB", float64(n)/float64(div), "KMGTPE"[exp])
+}
+
+// formatElapsed renders heartbeat durations in plain units (45s, 12m, 1h 5m).
+func formatElapsed(d time.Duration) string {
+	if d < time.Minute {
+		return fmt.Sprintf("%ds", int(d.Seconds()))
+	}
+	if d < time.Hour {
+		return fmt.Sprintf("%dm", int(d.Minutes()))
+	}
+	return fmt.Sprintf("%dh %dm", int(d.Hours()), int(d.Minutes())%60)
 }
 
 func displayKind(kind model.FileKind) string {

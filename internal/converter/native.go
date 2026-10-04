@@ -1,12 +1,16 @@
 package converter
 
 import (
+	"bufio"
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/emre-tarhan/vcflift/internal/certificate"
@@ -193,6 +197,69 @@ func (c *NativeConverter) Convert(ctx context.Context, cfg model.JobConfig, prog
 		Chain38To19: prepared.Chain, Chain19To38: prepared.Chain19To38,
 		SourceRenameMap: renameMap,
 	}
+
+	// Contigs the source reference does not carry (e.g. DRAGEN HLA graph
+	// contigs) would abort the REF check mid-stream with a faidx lookup
+	// failure; their records are dropped from the stream and appended to
+	// the rejected-variant bucket after the run.
+	srcFASTA := prepared.HG38FASTA
+	if cfg.Direction == model.DirectionReverse {
+		srcFASTA = prepared.HG19FASTA
+	}
+	absentContigs := contigsAbsentFromReference(plan.Inspection.ContigNames, srcFASTA)
+	var converterTemps []string
+	if len(absentContigs) > 0 {
+		// Tab-separated regions: contig names may contain ':' (HLA alleles),
+		// which a plain-name targets file would parse as chr:from-to.
+		dropFile := tempOutput + ".absent-contigs.txt"
+		lines := make([]string, len(absentContigs))
+		for i, name := range absentContigs {
+			lines[i] = name + "\t1\t1073741824"
+		}
+		if err := os.WriteFile(dropFile, []byte(strings.Join(lines, "\n")+"\n"), 0o644); err != nil {
+			return nil, fmt.Errorf("write absent-contig list: %w", err)
+		}
+		cfg.DropContigsFile = dropFile
+		converterTemps = append(converterTemps, dropFile)
+		example := absentContigs
+		if len(example) > 3 {
+			example = example[:3]
+		}
+		plan.Warnings = append(plan.Warnings, fmt.Sprintf("input declares contigs absent from the source reference (%d names, e.g. %s); records on them cannot be validated or lifted and are routed to the rejected-variant bucket", len(absentContigs), strings.Join(example, ", ")))
+	}
+	appendAbsentContigRejects := func() error {
+		if cfg.DropContigsFile == "" {
+			return nil
+		}
+		rejectExtra := rejectPath + ".absent.vcf.gz"
+		converterTemps = append(converterTemps, rejectExtra)
+		args := []string{"view", "-H", "-T", cfg.DropContigsFile, "-Oz", "-o", rejectExtra}
+		if cfg.Threads > 0 {
+			args = append(args, "--threads", strconv.Itoa(cfg.Threads))
+		}
+		args = append(args, cfg.InputPath)
+		pl := engine.Pipeline{Mode: cfg.Mode, Env: map[string]string{}, Steps: []engine.Step{
+			{Name: "collect contigs missing from source reference", Executable: inst.BCFTools, Args: args, PipeToNext: false},
+		}}
+		if err := c.Runner.Run(ctx, pl, progress); err != nil {
+			return err
+		}
+		in, err := os.Open(rejectExtra)
+		if err != nil {
+			return err
+		}
+		defer in.Close()
+		out, err := os.OpenFile(rejectPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+		if err != nil {
+			return fmt.Errorf("append contig rejects: %w", err)
+		}
+		if _, err := io.Copy(out, in); err != nil {
+			out.Close()
+			return fmt.Errorf("append contig rejects: %w", err)
+		}
+		return out.Close()
+	}
+
 	pipeline, err := engine.BuildPipeline(tc, cfg, rejectPath, tempOutput)
 	if err != nil {
 		return nil, err
@@ -206,12 +273,46 @@ func (c *NativeConverter) Convert(ctx context.Context, cfg model.JobConfig, prog
 			_ = os.Remove(p)
 			_ = os.Remove(p + ".tbi")
 		}
+		for _, p := range converterTemps {
+			_ = os.Remove(p)
+		}
 	}
 	defer cleanupTemps()
-	if err := c.Runner.Run(ctx, pipeline, progress); err != nil {
+	runErr := c.Runner.Run(ctx, pipeline, progress)
+	if runErr != nil {
 		_ = os.Remove(tempOutput)
 		_ = os.Remove(tempOutput + ".tbi")
-		return nil, err
+		// The pinned liftover engine can reject valid ploidy-aware
+		// cardinality (haploid Number=G fields such as GP/PL) deep into a
+		// whole-genome run. One retry with those FORMAT fields stripped
+		// from the stream converts the rest of the file; the loss is
+		// recorded as a warning instead of failing the whole conversion.
+		if cfg.StripFormatTags != nil || len(plan.Inspection.NumberGFormatTags) == 0 || cardinalityRejectedTag(runErr.Error()) == "" {
+			return nil, runErr
+		}
+		if progress != nil {
+			progress(model.ProgressEvent{Stage: model.StagePreparing, Message: "retry without ploidy-aware FORMAT fields"})
+		}
+		plan.Warnings = append(plan.Warnings, fmt.Sprintf("the pinned liftover engine rejected %s cardinality mid-stream (known engine limitation with haploid Number=G fields); retried once with these FORMAT fields removed from the stream: %s", cardinalityRejectedTag(runErr.Error()), strings.Join(plan.Inspection.NumberGFormatTags, ", ")))
+		for _, p := range pipeline.TempFiles {
+			_ = os.Remove(p)
+		}
+		cfg.StripFormatTags = plan.Inspection.NumberGFormatTags
+		pipeline, err = engine.BuildPipeline(tc, cfg, rejectPath, tempOutput)
+		if err != nil {
+			return nil, err
+		}
+		runErr = c.Runner.Run(ctx, pipeline, progress)
+		if runErr != nil {
+			_ = os.Remove(tempOutput)
+			_ = os.Remove(tempOutput + ".tbi")
+			return nil, runErr
+		}
+	}
+	if err := appendAbsentContigRejects(); err != nil {
+		_ = os.Remove(tempOutput)
+		_ = os.Remove(tempOutput + ".tbi")
+		return nil, fmt.Errorf("collect contig rejects: %w", err)
 	}
 	if _, err := os.Stat(tempOutput); err != nil {
 		return nil, fmt.Errorf("pipeline completed without output: %w", err)
@@ -442,6 +543,7 @@ func (c *NativeConverter) Convert(ctx context.Context, cfg model.JobConfig, prog
 		InputKind: plan.Inspection.Kind, Mode: cfg.Mode,
 		Direction:     cfg.Direction,
 		TargetProfile: string(prof),
+		Warnings:      plan.Warnings,
 		InputRecords:  inputRecords, LiftoverInputVariants: liftoverInput,
 		LiftedVariants: lifted, RejectedVariants: rejected,
 		OutputStarAlleleRecords: outputSummary.StarAlleleRecords, OutputNonRefAlleleRecords: outputSummary.NonRefAlleleRecords,
@@ -526,6 +628,45 @@ func reportPathFor(output string) string { return output + ".report.json" }
 func ledgerPathFor(output string) string { return output + ".ledger.tsv.gz" }
 
 func profileRejectPathFor(output string) string { return output + ".profile-rejected.vcf.gz" }
+
+var formatCardinalityRe = regexp.MustCompile(`Number of elements in the VCF record ([A-Za-z0-9_.]+) should be`)
+
+// cardinalityRejectedTag reports the FORMAT field named by the engine's
+// record-cardinality rejection, or "" when the error is something else.
+func cardinalityRejectedTag(errMsg string) string {
+	if m := formatCardinalityRe.FindStringSubmatch(errMsg); m != nil {
+		return m[1]
+	}
+	return ""
+}
+
+// contigsAbsentFromReference returns header contigs the source FASTA does
+// not carry, in header order. A missing .fai means the check cannot run and
+// the pipeline behaves as before.
+func contigsAbsentFromReference(names []string, fastaPath string) []string {
+	f, err := os.Open(fastaPath + ".fai")
+	if err != nil {
+		return nil
+	}
+	defer f.Close()
+	have := map[string]bool{}
+	sc := bufio.NewScanner(f)
+	for sc.Scan() {
+		if name := strings.SplitN(sc.Text(), "\t", 2)[0]; name != "" {
+			have[name] = true
+		}
+	}
+	if err := sc.Err(); err != nil {
+		return nil
+	}
+	var absent []string
+	for _, n := range names {
+		if !have[n] {
+			absent = append(absent, n)
+		}
+	}
+	return absent
+}
 
 // applyProfile splits the lifted UCSC-hg19 output into the GRCh37-named
 // primary output plus a profile reject bucket, then compresses both through

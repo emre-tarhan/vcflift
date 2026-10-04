@@ -3,6 +3,7 @@ package engine
 import (
 	"fmt"
 	"strconv"
+	"strings"
 
 	"github.com/emre-tarhan/vcflift/internal/model"
 )
@@ -168,7 +169,34 @@ func BuildPipeline(tc Toolchain, cfg model.JobConfig, rejectPath, tempOutput str
 		inputAlreadyPiped = true
 	}
 
+	// Contigs the source reference does not carry (e.g. DRAGEN HLA graph
+	// contigs) would abort the REF check with a faidx lookup failure, so
+	// their records are dropped from the stream here; the converter routes
+	// them to the rejected-variant bucket instead.
+	if cfg.DropContigsFile != "" {
+		args := []string{"view", "-T", "^" + cfg.DropContigsFile, "-Ou"}
+		args = append(args, threadArgs...)
+		if !inputAlreadyPiped {
+			args = append(args, cfg.InputPath)
+		}
+		p.Steps = append(p.Steps, Step{Name: "drop contigs missing from source reference", Executable: tc.BCFTools, Args: args, PipeToNext: true})
+		inputAlreadyPiped = true
+	}
+
 	// Validate source REF after any chromosome renaming / gVCF allele trimming.
+	if len(cfg.StripFormatTags) > 0 {
+		exprs := make([]string, len(cfg.StripFormatTags))
+		for i, tag := range cfg.StripFormatTags {
+			exprs[i] = "FORMAT/" + tag
+		}
+		stripArgs := []string{"annotate", "-x", strings.Join(exprs, ","), "-Ou"}
+		stripArgs = append(stripArgs, threadArgs...)
+		if !inputAlreadyPiped {
+			stripArgs = append(stripArgs, cfg.InputPath)
+		}
+		p.Steps = append(p.Steps, Step{Name: "strip engine-rejected FORMAT fields", Executable: tc.BCFTools, Args: stripArgs, PipeToNext: true})
+		inputAlreadyPiped = true
+	}
 	srcArgs := []string{"norm", "-f", srcFASTA, "-c", "e", "-Ou"}
 	srcArgs = append(srcArgs, threadArgs...)
 	if !inputAlreadyPiped {

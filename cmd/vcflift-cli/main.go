@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/emre-tarhan/vcflift/internal/cache"
 	"github.com/emre-tarhan/vcflift/internal/certificate"
@@ -169,9 +170,12 @@ func runConvert(args []string) error {
 		return fmt.Errorf("unknown --gvcf-mode %q (expected auto, genotype, or candidate)", gvcfMode)
 	}
 	result, err := c.Convert(context.Background(), cfg, func(e model.ProgressEvent) {
-		if e.Total > 0 {
+		switch {
+		case e.Elapsed > 0:
+			fmt.Fprintf(os.Stderr, "[%s] %s — still running (%s elapsed)\n", e.Stage, e.Message, e.Elapsed.Round(time.Second))
+		case e.Total > 0:
 			fmt.Fprintf(os.Stderr, "[%s] %s (%d/%d)\n", e.Stage, e.Message, e.Current, e.Total)
-		} else {
+		default:
 			fmt.Fprintf(os.Stderr, "[%s] %s\n", e.Stage, e.Message)
 		}
 	})

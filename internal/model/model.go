@@ -63,6 +63,7 @@ type Inspection struct {
 	Kind               FileKind
 	Assembly           Assembly
 	ContigStyle        ContigStyle
+	ContigNames        []string // header contig order, for reference-coverage checks
 	InputIndexPath     string
 	InputIndexKind     string
 	Samples            []string
@@ -74,6 +75,7 @@ type Inspection struct {
 	HasEndInfo         bool
 	HasReferenceBlock  bool
 	HeaderReference    string
+	NumberGFormatTags  []string // FORMAT fields declared Number=G (GT excluded)
 	Notes              []string
 }
 
@@ -110,6 +112,9 @@ type ProgressEvent struct {
 	Message string
 	Current int64
 	Total   int64
+	// Elapsed is set only by heartbeat events that report a still-running
+	// pipeline group; zero on ordinary step events.
+	Elapsed time.Duration
 }
 
 type JobConfig struct {
@@ -125,6 +130,17 @@ type JobConfig struct {
 	NeedsSourceRename bool
 	ReuseInputIndex   bool
 	Overwrite         bool
+	// StripFormatTags removes these FORMAT fields (bcftools annotate -x)
+	// before source validation when set. Used by the one-shot retry after
+	// the pinned liftover plugin rejects ploidy-aware cardinality (e.g.
+	// haploid FORMAT/GP on chrX/chrY) that valid VCF 4.2 producers emit.
+	StripFormatTags []string
+	// DropContigsFile is a targets file (name\tfrom\tto per line) listing
+	// input contigs absent from the source reference FASTA. Records on them
+	// cannot be REF-validated or lifted; the stream filter removes them and
+	// the converter routes them to the rejected-variant bucket. Tab-separated
+	// regions are required because contig names may contain ':'.
+	DropContigsFile string
 }
 
 type Result struct {
@@ -132,6 +148,7 @@ type Result struct {
 	Mode                        ConversionMode
 	Direction                   Direction `json:",omitempty"`
 	TargetProfile               string    `json:",omitempty"`
+	Warnings                    []string  `json:",omitempty"`
 	InputRecords                int64
 	InputVariants               int64  `json:",omitempty"` // retained for compatibility; ordinary VCF only
 	SourceNonRefCalls           int64  `json:",omitempty"`

@@ -39,13 +39,29 @@ shift
 out=""
 infile=""
 prev=""
+tfile=""
+tneg=0
+thdr=0
 for a in "$@"; do
   if [ "$prev" = "-o" ]; then out="$a"; fi
+  if [ "$prev" = "-T" ]; then
+    case "$a" in ^*) tneg=1; tfile="${a#^}";; *) tneg=0; tfile="$a";; esac
+  fi
+  [ "$a" = "-H" ] && thdr=1
   case "$a" in
-    *.vcf|*.vcf.gz) if [ -f "$a" ] && [ "$a" != "$out" ]; then infile="$a"; fi ;;
+    *.vcf|*.vcf.gz) if [ -f "$a" ] && [ "$a" != "$out" ] && [ "$a" != "$tfile" ]; then infile="$a"; fi ;;
   esac
   prev="$a"
 done
+apply_t() {
+  cut -f1 "$tfile" > "$tfile.names"
+  if [ "$tneg" = "1" ]; then
+    awk -v h="$thdr" 'NR==FNR{l[$1];next} ((h==1)?!/^#/:/^#/ || 1) && !($1 in l)' "$tfile.names" "$1"
+  else
+    awk -v h="$thdr" 'NR==FNR{l[$1];next} ((h==1)?!/^#/:/^#/ || 1) && ($1 in l)' "$tfile.names" "$1"
+  fi
+  rm -f "$tfile.names"
+}
 case "$cmd" in
   index)
     last=""
@@ -53,7 +69,19 @@ case "$cmd" in
     : > "$last.tbi"
     exit 0
     ;;
-  sort|view)
+  sort)
+    if [ -n "$infile" ]; then gzip -c "$infile" > "$out"; else gzip -c > "$out"; fi
+    exit 0
+    ;;
+  view)
+    if [ -n "$tfile" ]; then
+      if [ -n "$out" ]; then
+        if [ -n "$infile" ]; then apply_t "$infile" | gzip -c > "$out"; else apply_t /dev/stdin | gzip -c > "$out"; fi
+      else
+        if [ -n "$infile" ]; then apply_t "$infile"; else apply_t /dev/stdin; fi
+      fi
+      exit 0
+    fi
     if [ -n "$out" ]; then
       if [ -n "$infile" ]; then gzip -c "$infile" > "$out"; else gzip -c > "$out"; fi
     else
@@ -77,7 +105,7 @@ exit 9
 		t.Fatal(err)
 	}
 
-	fastaGZ := gzipBytes(t, ">chr1\nACGTACGT\n")
+	fastaGZ := gzipBytes(t, ">chr1\nACGTACGT\n>chrM\nACGTACGT\n>chrUn_gl000220v1\nACGTACGT\n")
 	chain := []byte("chain fixture\n")
 	aliases := []byte("chr1\t1\tNC_000001.11\n")
 	files := map[string][]byte{"/hg38.fa.gz": fastaGZ, "/hg19.fa.gz": fastaGZ, "/chain.gz": chain, "/aliases.txt": aliases}
@@ -165,6 +193,168 @@ exit 9
 	}
 }
 
+// Records on contigs the source reference does not carry (e.g. DRAGEN HLA
+// graph contigs) must not abort the conversion: they are dropped from the
+// stream and routed to the rejected-variant bucket with a recorded warning.
+func TestNativeConverterAbsentContigRejected(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("fake bcftools fixture is a POSIX shell script")
+	}
+	d := t.TempDir()
+	fake := filepath.Join(d, "bcftools")
+	script := `#!/bin/sh
+if [ "$1" = "--version" ]; then echo "bcftools 1.24"; exit 0; fi
+if [ "$1" = "plugin" ] && [ "$2" = "-l" ]; then echo "liftover"; exit 0; fi
+if [ "$1" = "+liftover" ] && [ "$2" = "-h" ]; then echo "--write-src --write-reject --lift-end"; exit 0; fi
+cmd="$1"
+shift
+out=""
+infile=""
+prev=""
+tfile=""
+tneg=0
+thdr=0
+for a in "$@"; do
+  if [ "$prev" = "-o" ]; then out="$a"; fi
+  if [ "$prev" = "-T" ]; then
+    case "$a" in ^*) tneg=1; tfile="${a#^}";; *) tneg=0; tfile="$a";; esac
+  fi
+  [ "$a" = "-H" ] && thdr=1
+  case "$a" in
+    *.vcf|*.vcf.gz) if [ -f "$a" ] && [ "$a" != "$out" ] && [ "$a" != "$tfile" ]; then infile="$a"; fi ;;
+  esac
+  prev="$a"
+done
+apply_t() {
+  cut -f1 "$tfile" > "$tfile.names"
+  if [ "$tneg" = "1" ]; then
+    awk -v h="$thdr" 'NR==FNR{l[$1];next} ((h==1)?!/^#/:/^#/ || 1) && !($1 in l)' "$tfile.names" "$1"
+  else
+    awk -v h="$thdr" 'NR==FNR{l[$1];next} ((h==1)?!/^#/:/^#/ || 1) && ($1 in l)' "$tfile.names" "$1"
+  fi
+  rm -f "$tfile.names"
+}
+case "$cmd" in
+  index)
+    last=""
+    for a in "$@"; do last="$a"; done
+    : > "$last.tbi"
+    exit 0
+    ;;
+  sort)
+    if [ -n "$infile" ]; then gzip -c "$infile" > "$out"; else gzip -c > "$out"; fi
+    exit 0
+    ;;
+  view)
+    if [ -n "$tfile" ]; then
+      if [ -n "$out" ]; then
+        if [ -n "$infile" ]; then apply_t "$infile" | gzip -c > "$out"; else apply_t /dev/stdin | gzip -c > "$out"; fi
+      else
+        if [ -n "$infile" ]; then apply_t "$infile"; else apply_t /dev/stdin; fi
+      fi
+      exit 0
+    fi
+    if [ -n "$out" ]; then
+      if [ -n "$infile" ]; then gzip -c "$infile" > "$out"; else gzip -c > "$out"; fi
+    else
+      if [ -n "$infile" ]; then cat "$infile"; else cat; fi
+    fi
+    exit 0
+    ;;
+  +liftover)
+    cat
+    exit 0
+    ;;
+  norm|annotate)
+    if [ -n "$infile" ]; then cat "$infile"; else cat; fi
+    exit 0
+    ;;
+esac
+echo "unsupported fake bcftools command: $cmd" >&2
+exit 9
+`
+	if err := os.WriteFile(fake, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	fastaGZ := gzipBytes(t, ">chr1\nACGTACGT\n")
+	chain := []byte("chain fixture\n")
+	aliases := []byte("chr1\t1\tNC_000001.11\n")
+	files := map[string][]byte{"/hg38.fa.gz": fastaGZ, "/hg19.fa.gz": fastaGZ, "/chain.gz": chain, "/aliases.txt": aliases}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		b, ok := files[r.URL.Path]
+		if !ok {
+			http.NotFound(w, r)
+			return
+		}
+		_, _ = w.Write(b)
+	}))
+	defer srv.Close()
+
+	res := func(id, name string, payload []byte, transform resources.Transform, prepared string) resources.Resource {
+		h := md5.Sum(payload)
+		return resources.Resource{ID: id, Name: id, URL: srv.URL + name, Filename: filepath.Base(name), MD5: hex.EncodeToString(h[:]), Transform: transform, PreparedFilename: prepared}
+	}
+	manifest := resources.Manifest{Version: 1, Resources: []resources.Resource{
+		res("hg38_fasta", "/hg38.fa.gz", fastaGZ, resources.TransformGzipFASTA, "hg38.fa"),
+		res("hg19_fasta", "/hg19.fa.gz", fastaGZ, resources.TransformGzipFASTA, "hg19.fa"),
+		res("hg38_to_hg19_chain", "/chain.gz", chain, resources.TransformNone, ""),
+		res("hg38_aliases", "/aliases.txt", aliases, resources.TransformNone, ""),
+	}}
+
+	input := filepath.Join(d, "sample.vcf")
+	vcfText := "##fileformat=VCFv4.2\n##contig=<ID=chr1,length=248956422>\n##contig=<ID=HLA-DRB1*01:01:01:01,length=6503>\n#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\nchr1\t2\t.\tC\tT\t.\tPASS\t.\nHLA-DRB1*01:01:01:01\t100\t.\tG\tA\t.\tPASS\t.\nHLA-DRB1*01:01:01:01\t200\t.\tT\tC\t.\tPASS\t.\n"
+	if err := os.WriteFile(input, []byte(vcfText), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	output := filepath.Join(d, "sample.hg19.vcf.gz")
+
+	c := NewNative(filepath.Join(d, "cache"))
+	c.Manifest = manifest
+	c.Installation = engine.Installation{BCFTools: fake}
+	result, err := c.Convert(context.Background(), model.JobConfig{
+		InputPath: input, OutputPath: output, KeepRejected: true,
+	}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.LiftedVariants != 1 {
+		t.Fatalf("lifted=%d want 1 (chr1 only)", result.LiftedVariants)
+	}
+	if result.RejectedVariants != 2 {
+		t.Fatalf("rejected=%d want 2 (both HLA records)", result.RejectedVariants)
+	}
+	if result.LiftoverInputVariants != 3 {
+		t.Fatalf("liftover input=%d want 3 (conservation)", result.LiftoverInputVariants)
+	}
+	if result.InputRecords != 3 {
+		t.Fatalf("input records=%d want 3", result.InputRecords)
+	}
+	rejText := readGzipText(t, output+".rejected.vcf.gz")
+	if !strings.Contains(rejText, "HLA-DRB1*01:01:01:01\t100") || !strings.Contains(rejText, "HLA-DRB1*01:01:01:01\t200") {
+		t.Fatalf("absent-contig records missing from reject bucket:\n%s", rejText)
+	}
+	reportBytes, err := os.ReadFile(output + ".report.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var doc struct {
+		Warnings []string `json:"warnings"`
+	}
+	if err := json.Unmarshal(reportBytes, &doc); err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, w := range doc.Warnings {
+		if strings.Contains(w, "absent from the source reference") && strings.Contains(w, "HLA-DRB1") {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("absent-contig warning missing from report: %+v", doc.Warnings)
+	}
+}
+
 func readGzipText(t *testing.T, path string) string {
 	t.Helper()
 	f, err := os.Open(path)
@@ -242,7 +432,7 @@ exit 9
 		t.Fatal(err)
 	}
 
-	fastaGZ := gzipBytes(t, ">chr1\nACGTACGT\n")
+	fastaGZ := gzipBytes(t, ">chr1\nACGTACGT\n>chrM\nACGTACGT\n>chrUn_gl000220v1\nACGTACGT\n")
 	chain := []byte("chain fixture\n")
 	aliases := []byte("chr1\t1\tNC_000001.10\n")
 	files := map[string][]byte{
@@ -371,7 +561,7 @@ exit 9
 		t.Fatal(err)
 	}
 
-	fastaGZ := gzipBytes(t, ">chr1\nACGTACGT\n")
+	fastaGZ := gzipBytes(t, ">chr1\nACGTACGT\n>chrM\nACGTACGT\n>chrUn_gl000220v1\nACGTACGT\n")
 	chain := []byte("chain fixture\n")
 	aliases := []byte("chr1\t1\tNC_000001.11\n")
 	files := map[string][]byte{"/hg38.fa.gz": fastaGZ, "/hg19.fa.gz": fastaGZ, "/chain.gz": chain, "/aliases.txt": aliases}
@@ -664,13 +854,29 @@ shift
 out=""
 infile=""
 prev=""
+tfile=""
+tneg=0
+thdr=0
 for a in "$@"; do
   if [ "$prev" = "-o" ]; then out="$a"; fi
+  if [ "$prev" = "-T" ]; then
+    case "$a" in ^*) tneg=1; tfile="${a#^}";; *) tneg=0; tfile="$a";; esac
+  fi
+  [ "$a" = "-H" ] && thdr=1
   case "$a" in
-    *.vcf|*.vcf.gz) if [ -f "$a" ] && [ "$a" != "$out" ]; then infile="$a"; fi ;;
+    *.vcf|*.vcf.gz) if [ -f "$a" ] && [ "$a" != "$out" ] && [ "$a" != "$tfile" ]; then infile="$a"; fi ;;
   esac
   prev="$a"
 done
+apply_t() {
+  cut -f1 "$tfile" > "$tfile.names"
+  if [ "$tneg" = "1" ]; then
+    awk -v h="$thdr" 'NR==FNR{l[$1];next} ((h==1)?!/^#/:/^#/ || 1) && !($1 in l)' "$tfile.names" "$1"
+  else
+    awk -v h="$thdr" 'NR==FNR{l[$1];next} ((h==1)?!/^#/:/^#/ || 1) && ($1 in l)' "$tfile.names" "$1"
+  fi
+  rm -f "$tfile.names"
+}
 case "$cmd" in
   index)
     last=""
@@ -678,7 +884,19 @@ case "$cmd" in
     : > "$last.tbi"
     exit 0
     ;;
-  sort|view)
+  sort)
+    if [ -n "$infile" ]; then gzip -c "$infile" > "$out"; else gzip -c > "$out"; fi
+    exit 0
+    ;;
+  view)
+    if [ -n "$tfile" ]; then
+      if [ -n "$out" ]; then
+        if [ -n "$infile" ]; then apply_t "$infile" | gzip -c > "$out"; else apply_t /dev/stdin | gzip -c > "$out"; fi
+      else
+        if [ -n "$infile" ]; then apply_t "$infile"; else apply_t /dev/stdin; fi
+      fi
+      exit 0
+    fi
     if [ -n "$out" ]; then
       if [ -n "$infile" ]; then gzip -c "$infile" > "$out"; else gzip -c > "$out"; fi
     else
@@ -702,7 +920,7 @@ exit 9
 		t.Fatal(err)
 	}
 
-	fastaGZ := gzipBytes(t, ">chr1\nACGTACGT\n")
+	fastaGZ := gzipBytes(t, ">chr1\nACGTACGT\n>chrM\nACGTACGT\n>chrUn_gl000220v1\nACGTACGT\n")
 	chain := []byte("chain fixture\n")
 	aliases := []byte("chr1\t1\tNC_000001.10\n")
 	files := map[string][]byte{

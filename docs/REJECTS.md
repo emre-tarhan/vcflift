@@ -125,6 +125,12 @@ A larger rescue count is **not sufficient** to change defaults. Any candidate se
 
 No coordinate-only UCSC `liftOver` fallback will be used to override an allele-aware rejection.
 
+## Contigs missing from the source reference (v1.2.1)
+
+Graph-aware callers (e.g. Illumina DRAGEN with an HLA-aware reference) can emit records on contigs the managed UCSC hg38/hg19 FASTA does not carry — HLA graph alleles (`HLA-DRB1*03:01:01:01`), `_decoy` contigs, `chrEBV`. Such records have no reference sequence to validate against and no chain mapping to lift through; before v1.2.1 the first one aborted the whole conversion with a faidx lookup failure.
+
+These contigs are now detected before conversion (input header vs the source FASTA dictionary), filtered from the stream through a tab-separated targets file (plain name lists cannot express contig names containing `:`), and their records are appended to the same rejected VCF after the run, with a warning sentence in the QC report and GUI completion dialog. They count as rejected variants, so the conservation invariant `lifted + rejected = input records` still holds exactly; on the gate-7 DRAGEN file this bucket is 108 records on `HLA-DRB1*` contigs. There is no hg19 truth set for these contigs, so this routing is a conservation guarantee, not a concordance claim.
+
 ## Next reject milestone
 
 The first parameter sweep is complete and does **not** support a production-default change. The next research step is narrower: inspect the source-aware `snp_gap_10.rescued.tsv` / `combined_5_500.rescued.tsv` records, then test any promising behavior on an independent callset and/or alternative trusted chain. Reject rescue is therefore research work, not a v1.0 release blocker.

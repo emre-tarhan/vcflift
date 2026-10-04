@@ -33,6 +33,8 @@ Conversion progress is **stage-based**, not a fake linear percentage. The macro 
 
 The native pipeline streams source validation, allele-aware liftover, target validation and BGZF writing concurrently, so presenting those subprocesses as independent percentages would be misleading. The GUI groups them into the "Convert variants" stage while keeping detailed CLI/log events available for diagnostics.
 
+Long-running groups emit a still-running heartbeat every 30 seconds. The phase title appends the elapsed time (for example "Converting variants — 12m elapsed") and, during the conversion phase, a plain-language note that whole-genome files can take 30 minutes or more — a static "RUNNING" label that looked frozen was the single most confusing pre-v1.2.1 behavior on real WGS inputs. Conditional conversion paths surface in the completion dialog as "Note:" lines: records on contigs missing from the source reference being routed to the reject bucket, and the one-shot retry without ploidy-aware `Number=G` FORMAT fields when the pinned engine rejects their cardinality mid-stream.
+
 ## First-run setup
 
 On startup the app checks the local reference profile. If required resources are absent, a setup dialog opens automatically and explains that:
@@ -54,7 +56,7 @@ hg38 reference                    NOT READY
 Source reference genome                WAITING
 ```
 
-States are `NOT READY / DOWNLOADING / VERIFIED` for download and `WAITING / PREPARING / READY / NOT REQUIRED` for prepare. Download progress bars are per resource. FASTA decompression/index/dictionary work appears as `PREPARING` only after the verified download phase; this avoids the old UI appearing to be stuck on "Downloading hg38/hg19" while CPU/disk preparation was actually running.
+States are `NOT READY / DOWNLOADING / VERIFIED` for download and `WAITING / PREPARING… / READY / NOT REQUIRED` for prepare. Download progress bars are per resource. FASTA decompression/index/dictionary work appears as `PREPARING…` with an infinite progress bar and a "Preparing reference data… please wait." summary only after the verified download phase; this avoids the old UI appearing to be stuck on "Downloading hg38/hg19" while CPU/disk preparation was actually running, and makes the post-download working state visible at a glance.
 
 When all references are ready, the large setup call-to-action disappears in favor of a small `Check & repair` action. Users should not be left wondering whether they must download the same references again.
 

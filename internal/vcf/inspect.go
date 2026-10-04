@@ -15,6 +15,7 @@ import (
 
 var (
 	contigRe        = regexp.MustCompile(`^##contig=<ID=([^,>]+)(?:,length=([0-9]+))?`)
+	formatIdRe      = regexp.MustCompile(`^##FORMAT=<ID=([^,>]+)`)
 	refSeqPrimaryRe = regexp.MustCompile(`^NC_0000([0-2][0-9])\.[0-9]+$`)
 )
 
@@ -61,10 +62,15 @@ func Inspect(path string) (model.Inspection, error) {
 				out.DeepVariantVersion = strings.TrimPrefix(line, "##DeepVariant_version=")
 			case strings.HasPrefix(line, "##INFO=<ID=END"):
 				out.HasEndInfo = true
+			case strings.HasPrefix(line, "##FORMAT=<ID="):
+				if m := formatIdRe.FindStringSubmatch(line); m != nil && m[1] != "GT" && strings.Contains(line, "Number=G") {
+					out.NumberGFormatTags = append(out.NumberGFormatTags, m[1])
+				}
 			}
 
 			if m := contigRe.FindStringSubmatch(line); m != nil {
 				name := m[1]
+				out.ContigNames = append(out.ContigNames, name)
 				if strings.HasPrefix(name, "chr") {
 					seenUCSC = true
 				} else if isPrimaryGRChName(name) {

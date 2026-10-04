@@ -1,5 +1,17 @@
 # Changelog
 
+## v1.2.1 (2026-10-04)
+
+Whole-genome DRAGEN inputs no longer hang or abort; progress honesty for long runs. The validated pipeline steps, engine pin, chain and reject defaults are untouched — every change below is additive or a conditional fallback.
+
+- **Runner deadlock fixed (the reported GUI hang)**: when any mid-pipeline step exited early (the case below), the upstream writer blocked forever on a full pipe — the Go parent held the pipe's read end open, so no EPIPE ever arrived — while the sequential `Wait` sat on the first command. The CLI/GUI then showed "converting variants / RUNNING" indefinitely with no error. Pipes are now created explicitly and the parent drops its copies after start; all commands are waited concurrently and the failure is attributed to the command that failed first in time (the real cause, not the broken-pipe casualties). Regression tests cover the mid-step-exit deadlock and error attribution.
+- **Ploidy-aware `Number=G` FORMAT fields no longer abort whole-genome runs**: the pinned liftover plugin rejects valid haploid cardinality (chrX/chrY records where `GP`/`PL` carry 2 values) deep into multi-million-record streams (reproduced deterministically at ~4.83M records on a 4.95M-record DRAGEN file; the same records pass in isolation, so the trigger is engine state accumulation). bcftools' suggested `--drop-tags` is not a plugin-level option in 1.24, so on this exact cardinality rejection the converter retries once with the input's `Number=G` FORMAT fields (GT excluded) stripped from the stream; the retry and the field list are recorded as warnings in the report and shown in the GUI completion dialog. Files that never trigger the rejection take the original pipeline unchanged.
+- **Contigs missing from the source reference no longer crash the REF check**: records on contigs the source FASTA does not carry (e.g. DRAGEN HLA graph contigs like `HLA-DRB1*03:01:01:01`) aborted `norm -c e` with a faidx lookup failure. Such contigs are now detected up front (header vs FASTA dictionary), their records are filtered from the stream via a CHROM expression (target files cannot express contig names containing `:`) and routed to the rejected-variant bucket, with a warning. Conservation accounting stays exact: lifted + rejected still equals the input count.
+- **Still-running heartbeats**: long conversions used to emit one progress event per step and then go silent for tens of minutes (a 4.95M-variant file converts for well over 20 minutes), which looked like a hang even when working. Pipeline groups now emit a heartbeat event every 30 seconds (`Runner.Heartbeat` overrides; negative disables). The GUI appends elapsed time to the phase title ("Converting variants — 12m elapsed") with a plain-language note that whole-genome files can take 30 minutes or more; the CLI prints `[stage] step — still running (Xm elapsed)`.
+- GUI: resource rows in the "preparing" state now show "PREPARING…" plus an infinite progress bar, and the summary line reads "Preparing reference data… please wait."
+- GUI: the Choose-file dialog filter also accepts `.bgz`.
+- Inspection now records header contig names and `Number=G` FORMAT tags (`ContigNames`, `NumberGFormatTags`); `model.Result` carries `Warnings` so GUI and CLI surfaces can show conditional-path notes.
+
 ## v1.2.0 (2026-10-04)
 
 Auditability additions on top of the validated pipeline; the liftover core, engine, chain and reject defaults are untouched, and the output VCF stays byte-identical.
