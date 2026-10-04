@@ -140,8 +140,8 @@
 - [x] `Version` const → 1.2.0; CHANGELOG v1.2.0 section; ROADMAP/README/VALIDATION/TARGET_PROFILES updated.
 - [x] full non-dev build (`build.sh`) passing on the release machine.
 - [x] Windows CLI smoke (WSL interop): version, inspect with direction detection, and the four-profile flag surface on the real Windows binary (full Windows-path convert is covered by the real-hardware GUI smoke below).
-- [ ] Windows GUI smoke on real hardware (user; conversion + fourth dropdown entry + ledger line + certificate surfaces).
-- [ ] tag `v1.2.0` and push (release CI publishes with SHA256SUMS).
+- [x] Windows GUI smoke on real hardware (user-confirmed, 2026-10-04: conversion + fourth dropdown entry with contract + ledger line + gap sentence visible).
+- [x] tag `v1.2.0` and push (release CI publishes with SHA256SUMS).
 
 ## v1.0 rule
 
